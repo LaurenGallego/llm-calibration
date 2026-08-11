@@ -12,11 +12,13 @@ from caldrift.models.base import (
     model_registry,
     register_model,
 )
+from caldrift.models.stub import StubAdapter
 
 __all__ = [
     "ChoiceScores",
     "Generation",
     "ModelAdapter",
+    "StubAdapter",
     "model_registry",
     "register_model",
 ]
