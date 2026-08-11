@@ -14,9 +14,11 @@ from caldrift.benchmarks.base import (
     benchmark_registry,
     register_benchmark,
 )
+from caldrift.benchmarks.mmlu import MMLU
 
 __all__ = [
     "LETTERS",
+    "MMLU",
     "Benchmark",
     "Question",
     "TaskFormat",
