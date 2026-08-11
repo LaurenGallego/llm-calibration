@@ -4,6 +4,7 @@ version = "0.0.1"
 description = "Detecting calibration drift in LLMs from unlabeled confidence signals"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "datasets>=3.0",
     "numpy>=2.0",
     "pydantic>=2.7",
 ]
