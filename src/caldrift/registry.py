@@ -7,6 +7,7 @@ signals, benchmarks, or metrics -- it iterates the registry.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from typing import cast
 
 
 class Registry[T]:
@@ -14,13 +15,23 @@ class Registry[T]:
         self._kind = kind
         self._items: dict[str, T] = {}
 
-    def register(self, name: str) -> Callable[[T], T]:
-        """Decorator: `@registry.register("ece")`."""
+    def register[U](self, name: str) -> Callable[[U], U]:
+        """Decorator: `@registry.register("ece")`.
 
-        def decorator(obj: T) -> T:
+        Generic in U rather than T. Returning `Callable[[T], T]` would rebind the
+        decorated name to the registry's declared type -- `@register_benchmark`
+        would erase MMLU down to `type[Benchmark]`, and every constructor argument
+        would look undefined to a type checker.
+
+        U cannot be bounded by T (PEP 695 forbids a generic bound), so this no
+        longer checks that the registered object fits the registry. That check
+        lives in tests/test_protocol_conformance.py instead.
+        """
+
+        def decorator(obj: U) -> U:
             if name in self._items:
                 raise ValueError(f"{self._kind} {name!r} is already registered")
-            self._items[name] = obj
+            self._items[name] = cast(T, obj)
             return obj
 
         return decorator

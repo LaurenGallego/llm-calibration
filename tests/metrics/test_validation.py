@@ -59,4 +59,4 @@ def test_registry_lookup_of_unknown_metric_lists_what_exists():
 
 def test_registry_rejects_duplicate_registration():
     with pytest.raises(ValueError, match="already registered"):
-        metric_registry.register("ece")(lambda c, k: 0.0)
+        metric_registry.register("ece")(lambda confidences, correct: 0.0)
