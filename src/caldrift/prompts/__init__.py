@@ -12,9 +12,17 @@ from caldrift.prompts.base import (
     prompt_registry,
     register_prompt,
 )
+from caldrift.prompts.fewshot import (
+    ANSWER_CUE,
+    BLOCK_SEPARATOR,
+    FewShotCompletion,
+)
 
 __all__ = [
+    "ANSWER_CUE",
+    "BLOCK_SEPARATOR",
     "CONTINUATION_PREFIX",
+    "FewShotCompletion",
     "PromptProtocol",
     "RenderedPrompt",
     "prompt_registry",
