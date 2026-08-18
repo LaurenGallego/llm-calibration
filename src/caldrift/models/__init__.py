@@ -6,6 +6,7 @@ here or its decorator never runs.
 """
 
 from caldrift.models.base import (
+    PROBABILITY_TOLERANCE,
     ChoiceScores,
     Generation,
     ModelAdapter,
@@ -15,6 +16,7 @@ from caldrift.models.base import (
 from caldrift.models.stub import StubAdapter
 
 __all__ = [
+    "PROBABILITY_TOLERANCE",
     "ChoiceScores",
     "Generation",
     "ModelAdapter",

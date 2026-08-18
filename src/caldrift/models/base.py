@@ -16,6 +16,10 @@ from caldrift.registry import Registry
 
 FINISHING_REASONS = ("stop", "length")
 
+# Slack allowed when checking that probabilities sum to what they should. Shared with
+# `signals/` so the two cannot drift apart and disagree about what "sums to 1" means.
+PROBABILITY_TOLERANCE = 1e-9
+
 
 @dataclass(frozen=True, slots=True)
 class Generation:
@@ -56,6 +60,12 @@ class ChoiceScores:
             raise ValueError(f"logprobs must all be finite, got {self.logprobs}")
         if any(lp > 0 for lp in self.logprobs):
             raise ValueError("logprobs must be <= 0; found a positive value")
+        # The candidates are mutually exclusive continuations, so their probabilities
+        # cannot sum past 1. A mass above 1 means the adapter scored events that overlap
+        # -- a bug in the adapter, not a quirk to be clamped away downstream.
+        mass = self.option_mass()
+        if mass > 1.0 + PROBABILITY_TOLERANCE:
+            raise ValueError(f"option mass must be <= 1, got {mass}")
 
     def probabilities(self) -> tuple[float, ...]:
         """Normalised distribution over the candidates, aligned to `choices`.
