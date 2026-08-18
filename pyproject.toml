@@ -11,6 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "import-linter>=2.0",
     "pyright>=1.1.390",
     "pytest>=8.0",
     "ruff>=0.6",
@@ -39,3 +40,24 @@ venvPath = "."
 venv = ".venv"
 include = ["src", "tests"]
 typeCheckingMode = "standard"
+
+[tool.importlinter]
+root_packages = ["caldrift"]
+
+# The label-leakage boundary, machine-checked. `benchmarks` is on this list because
+# `Question.answer` *is* the ground-truth label, not only because of what the package
+# is named -- the original "signals must not import metrics" rule left that hole open.
+# Indirect chains count: signals -> judges -> benchmarks breaks this too, which is the
+# case that will actually matter once `judges/` exists.
+#
+# Modules must exist to be listed. `caldrift.judges`, `caldrift.drift`,
+# `caldrift.orchestration` and `caldrift.analysis` are added to `forbidden_modules` by
+# the commit that creates each of them.
+[[tool.importlinter.contracts]]
+name = "signals never reach a label"
+type = "forbidden"
+source_modules = ["caldrift.signals"]
+forbidden_modules = [
+    "caldrift.benchmarks",
+    "caldrift.metrics",
+]
