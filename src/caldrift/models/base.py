@@ -122,8 +122,8 @@ class ModelAdapter(Protocol):
         ...
 
 
-model_registry: Registry[type[ModelAdapter]] = Registry("model adapter")
+model_adapter_registry: Registry[type[ModelAdapter]] = Registry("model adapter")
 
 
-def register_model(name: str):
-    return model_registry.register(name)
+def register_model_adapter(name: str):
+    return model_adapter_registry.register(name)

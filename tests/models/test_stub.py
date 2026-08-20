@@ -65,8 +65,12 @@ def test_greedy_repeats_and_sampling_varies(stub):
     would read as perfect agreement on every question -- a plausible-looking
     number that means nothing.
     """
-    greedy = [g.text for g in stub.generate(["q1"], n=3, temperature=0.0)[0]]
-    assert greedy == [greedy[0]] * 3, f"greedy sampling should repeat, got {greedy}"
+    # Determinism is checked with n=1 called repeatedly, not with n>1 at temperature 0.
+    # TransformersAdapter rejects that combination outright -- n greedy samples are n
+    # copies of one answer, which would hand signal 3 fabricated agreement -- so the
+    # stub is not exercised down a path the real adapter refuses.
+    greedy = [stub.generate(["q1"], n=1, temperature=0.0)[0][0].text for _ in range(3)]
+    assert greedy == [greedy[0]] * 3, f"greedy decoding should repeat, got {greedy}"
 
     sampled = {g.text for g in stub.generate(["q1"], n=20, temperature=1.0)[0]}
     assert len(sampled) > 1, f"temperature=1.0 produced no variation: {sampled}"

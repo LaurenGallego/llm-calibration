@@ -17,10 +17,10 @@ import math
 import random
 from collections.abc import Sequence
 
-from caldrift.models.base import ChoiceScores, Generation, register_model
+from caldrift.models.base import ChoiceScores, Generation, register_model_adapter
 
 
-@register_model("stub")
+@register_model_adapter("stub")
 class StubAdapter:
     name = "stub"
     model_id = "stub"

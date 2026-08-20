@@ -7,9 +7,17 @@ dependencies = [
     "datasets>=3.0",
     "numpy>=2.0",
     "pydantic>=2.7",
+    "accelerate>=0.30",
+    "torch>=2.4",
+    "transformers>=4.44",
 ]
 
 [project.optional-dependencies]
+# vLLM is Linux/CUDA only -- it does not build on macOS, so it cannot be a core
+# dependency without breaking `uv sync` on the development machine.
+vllm = [
+    "vllm>=0.6",
+]
 dev = [
     "import-linter>=2.0",
     "pyright>=1.1.390",
