@@ -5,8 +5,11 @@ description = "Detecting calibration drift in LLMs from unlabeled confidence sig
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "datasets>=3.0",
+    "duckdb>=1.0",
     "numpy>=2.0",
+    "pyarrow>=17.0",
     "pydantic>=2.7",
+    "pyyaml>=6.0",
     "accelerate>=0.30",
     "torch>=2.4",
     "transformers>=4.44",
@@ -68,4 +71,5 @@ source_modules = ["caldrift.signals"]
 forbidden_modules = [
     "caldrift.benchmarks",
     "caldrift.metrics",
+    "caldrift.storage",
 ]
