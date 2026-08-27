@@ -43,8 +43,7 @@ def test_environment_fields_do_not_move_the_hash():
         {"prompt": {"n_shots": 0}},
         {"scoring_mode": "generative"},
         {"seed": 99},
-        {"benchmark": {"subjects": ["anatomy"]}},
-        {"benchmark": {"revision": "abc123"}},
+        {"benchmark": {"name": "mmlu", "revision": "abc123"}},
     ],
 )
 def test_experimental_fields_move_the_hash(override):
@@ -59,6 +58,13 @@ def test_dtype_moves_the_hash():
 def test_resolved_checkpoint_moves_the_hash():
     # A run pinned to a branch name must not reuse rows from before the branch moved.
     assert build().config_hash("sha-a") != build().config_hash("sha-b")
+
+
+def test_a_benchmark_block_must_name_its_benchmark():
+    # A discriminated union cannot infer the tag from a default, which is the point:
+    # every config states which benchmark it runs rather than inheriting one.
+    with pytest.raises(ValidationError, match="discriminator"):
+        build(benchmark={"revision": "abc123"})
 
 
 def test_a_mistyped_key_is_an_error_not_a_default():
@@ -78,8 +84,11 @@ def test_greedy_resampling_is_refused_at_config_time():
         build(n_samples=4)
 
 
-def test_unseeded_subset_is_refused():
-    # MMLU ids sort by subject, so an unseeded limit is alphabetically-early subjects,
-    # not a sample of the benchmark.
-    with pytest.raises(ValidationError, match="sample_seed"):
-        build(benchmark={"limit": 100})
+def test_a_run_cannot_be_narrowed_to_a_subset():
+    # A run is the full benchmark. Topic shards are cut from the stored `subject`
+    # column by analysis, not by narrowing what was executed -- otherwise a condition's
+    # ECE is over whichever questions someone chose that day.
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        build(benchmark={"name": "mmlu", "limit": 100})
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        build(benchmark={"name": "mmlu", "subjects": ["anatomy"]})

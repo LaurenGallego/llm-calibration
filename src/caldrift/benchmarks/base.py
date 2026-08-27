@@ -7,6 +7,11 @@ Contracts implementations must honour, since neither is expressible in a signatu
   never a placeholder. An unparseable response is a different event from a wrong
   answer, and collapsing the two changes both accuracy and ECE.
 - `grade` receives the already-extracted answer, not the raw response.
+- `exemplars` returns the few-shot examples this benchmark's official protocol uses for
+  a given question -- for MMLU, the first `n_shots` of the same subject's `dev` split.
+  Which pool is canonical is benchmark-specific knowledge and belongs here rather than
+  in a config field: it is part of running the benchmark as published. Raise if the pool
+  is too small rather than rendering a shorter prompt than the config asked for.
 """
 
 from collections.abc import Mapping, Sequence
@@ -58,6 +63,8 @@ class Benchmark(Protocol):
     task_format: TaskFormat
 
     def load(self, limit: int | None = None, seed: int | None = None) -> Sequence[Question]: ...
+
+    def exemplars(self, question: Question, n_shots: int) -> Sequence[Question]: ...
 
     def extract_answer(self, response: str) -> str | None: ...
 

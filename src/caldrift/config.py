@@ -67,22 +67,21 @@ ModelConfig = Annotated[
 ]
 
 
-class BenchmarkConfig(_Strict):
-    name: str = "mmlu"
-    subjects: tuple[str, ...] | None = None
-    split: str = "test"
+class MMLUBenchmarkConfig(_Strict):
+    name: Literal["mmlu"] = "mmlu"
     revision: str | None = None
-    limit: int | None = Field(default=None, ge=1)
-    sample_seed: int | None = None
+    # Local copies, for an offline node or a test fixture. Absent both, the hub is read.
+    source: Path | None = None
+    exemplar_source: Path | None = None
 
-    @model_validator(mode="after")
-    def _sampling_is_reproducible(self) -> Self:
-        # Without a seed, `limit` takes the first N in id order -- and MMLU ids sort by
-        # subject, so an unseeded subset is alphabetically-early subjects rather than a
-        # sample of the benchmark.
-        if self.limit is not None and self.sample_seed is None:
-            raise ValueError("benchmark.limit requires sample_seed; an unseeded subset is biased")
-        return self
+
+# One arm today; adding a benchmark adds an arm rather than widening a shared class.
+# Everything specific to running a benchmark as published -- which split is canonical,
+# where its few-shot pool comes from, how many shots it supports -- lives on the
+# benchmark class, not here. There is deliberately no `limit` or subject filter: a run
+# is the full benchmark, and topic shards are cut from the stored `subject` column by
+# `analysis/`, not by narrowing what was executed.
+BenchmarkConfig = Annotated[MMLUBenchmarkConfig, Field(discriminator="name")]
 
 
 class PromptConfig(_Strict):
@@ -92,7 +91,7 @@ class PromptConfig(_Strict):
 
 class RunConfig(_Strict):
     model: ModelConfig
-    benchmark: BenchmarkConfig = BenchmarkConfig()
+    benchmark: BenchmarkConfig = MMLUBenchmarkConfig()
     prompt: PromptConfig = PromptConfig()
     scoring_mode: Literal["likelihood", "generative"] = "likelihood"
     temperature: float = Field(default=0.0, ge=0.0)

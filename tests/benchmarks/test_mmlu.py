@@ -67,3 +67,54 @@ def test_grade_normalises_input_and_rejects_non_strings(mmlu):
     assert mmlu.grade(question, "B") is False
     with pytest.raises(TypeError, match="expects an extracted answer string"):
         mmlu.grade(question, None)
+
+
+def test_exemplars_come_from_the_dev_pool_of_the_same_subject():
+    # Which pool is canonical is part of running MMLU as published, so it lives on the
+    # benchmark rather than in config. A cross-subject exemplar would also break
+    # FewShotCompletion's own check.
+    mmlu = MMLU(
+        source=Path("tests/fixtures/mmlu_sample.jsonl"),
+        exemplar_source=Path("tests/fixtures/mmlu_dev_sample.jsonl"),
+    )
+    question = mmlu.load()[0]
+    shots = mmlu.exemplars(question, 3)
+
+    assert len(shots) == 3
+    assert all(s.metadata["subject"] == question.metadata["subject"] for s in shots)
+    assert all(s.metadata["split"] == "dev" for s in shots)
+    # first_n in dataset order, as lm-evaluation-harness takes them
+    assert [s.id for s in shots] == [
+        f"mmlu/{question.metadata['subject']}/dev/{i}" for i in range(3)
+    ]
+
+
+def test_exemplars_are_not_the_evaluation_questions():
+    # A leaked target would raise accuracy toward 100% and raise nothing else.
+    mmlu = MMLU(
+        source=Path("tests/fixtures/mmlu_sample.jsonl"),
+        exemplar_source=Path("tests/fixtures/mmlu_dev_sample.jsonl"),
+    )
+    evaluation = {q.id for q in mmlu.load()}
+    for question in mmlu.load():
+        assert not evaluation & {s.id for s in mmlu.exemplars(question, 5)}
+
+
+def test_too_few_exemplars_raises_rather_than_shortening_the_prompt():
+    # Silently rendering 5 shots as 3 would make the condition something other than
+    # what the config asked for, with nothing recording the difference.
+    mmlu = MMLU(
+        source=Path("tests/fixtures/mmlu_sample.jsonl"),
+        exemplar_source=Path("tests/fixtures/mmlu_dev_sample.jsonl"),
+    )
+    with pytest.raises(ValueError, match="n_shots=6"):
+        mmlu.exemplars(mmlu.load()[0], 6)
+
+
+def test_zero_shot_needs_no_pool():
+    assert (
+        MMLU(source=Path("tests/fixtures/mmlu_sample.jsonl")).exemplars(
+            MMLU(source=Path("tests/fixtures/mmlu_sample.jsonl")).load()[0], 0
+        )
+        == ()
+    )
