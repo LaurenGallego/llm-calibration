@@ -26,7 +26,7 @@ from caldrift.storage import Stage
 
 # Fields recorded per row and verified by analysis rather than hashed into the identity
 # of the condition.
-ENVIRONMENT_FIELDS = ("batch_size", "device", "output_root")
+ENVIRONMENT_FIELDS = ("batch_size", "chunk_size", "device", "output_root")
 
 
 class _Strict(BaseModel):
@@ -98,6 +98,10 @@ class RunConfig(_Strict):
     n_samples: int = Field(default=1, ge=1)
     max_tokens: int = Field(default=512, ge=1)
     seed: int = 0
+    # Questions per stored Parquet chunk. Smaller means a walltime kill loses less;
+    # larger means fewer files. It changes nothing about the numbers, so it is an
+    # environment field and does not enter config_hash.
+    chunk_size: int = Field(default=200, ge=1)
     # None means every registered signal. A list pins the set, so a run cannot silently
     # gain a signal because one was added to the registry between submissions.
     signals: tuple[str, ...] | None = None
@@ -123,8 +127,8 @@ class RunConfig(_Strict):
         parse time.
         """
         payload = self.model_dump(mode="json")
-        payload.pop("output_root", None)
         for field in ENVIRONMENT_FIELDS:
+            payload.pop(field, None)
             payload["model"].pop(field, None)
         payload["checkpoint_sha"] = checkpoint_sha
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))

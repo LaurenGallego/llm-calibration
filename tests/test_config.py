@@ -35,6 +35,7 @@ def test_environment_fields_do_not_move_the_hash():
     assert with_model(batch_size=64).config_hash(SHA) == reference
     assert with_model(device="cpu").config_hash(SHA) == reference
     assert build(output_root="/somewhere/else").config_hash(SHA) == reference
+    assert build(chunk_size=1).config_hash(SHA) == reference
 
 
 @pytest.mark.parametrize(

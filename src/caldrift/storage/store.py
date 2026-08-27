@@ -51,7 +51,14 @@ from caldrift.storage.schema import (
 
 @dataclass(frozen=True, slots=True)
 class RunManifest:
-    """Everything that identifies one execution: the condition plus its provenance."""
+    """Everything that identifies one execution: the condition plus its provenance.
+
+    `n_questions_planned` is the size of the **whole condition**, not of this run's
+    remainder. A requeued job necessarily gets a fresh `run_id`, so summing
+    `n_questions_written` across runs double-counts anything computed twice and
+    undercounts nothing usefully -- `analysis/` establishes completeness by counting
+    distinct `question_id` against this number instead, which is robust to overlap.
+    """
 
     run_id: str
     config_hash: str
