@@ -17,6 +17,7 @@ import math
 import random
 from collections.abc import Sequence
 
+from caldrift import __version__
 from caldrift.models.base import ChoiceScores, Generation, register_model_adapter
 
 
@@ -25,6 +26,9 @@ class StubAdapter:
     name = "stub"
     model_id = "stub"
     revision: str | None = None
+    # The stub has no inference library; its behaviour is defined entirely by this
+    # codebase, so caldrift's own version is the honest answer.
+    backend_version = __version__
     supports_scoring = True
     supports_logprobs = True
 

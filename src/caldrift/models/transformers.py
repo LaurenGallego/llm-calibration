@@ -56,6 +56,7 @@ class TransformersAdapter:
         # Imported here rather than at module scope so `import caldrift.models` stays
         # fast for the stub path. Follows mmlu.py's precedent with `datasets`.
         import torch
+        import transformers
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         if batch_size < 1:
@@ -66,6 +67,9 @@ class TransformersAdapter:
         self.device = device
         self.batch_size = batch_size
         self._torch = torch
+        # Read from the library that is actually loaded, never pinned in config: a
+        # hardcoded string would keep reporting the version someone typed once.
+        self.backend_version: str = transformers.__version__
 
         self._tokenizer = AutoTokenizer.from_pretrained(
             model_id, revision=revision, local_files_only=True

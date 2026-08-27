@@ -89,6 +89,11 @@ class ModelAdapter(Protocol):
     name: str
     model_id: str
     revision: str | None
+    # The version of the library that actually produced the numbers. Not derivable from
+    # anything else on the row: vLLM 0.6.1 and 0.6.3 can return different logprobs for
+    # one checkpoint, and so can two `transformers` minors. Recorded per row so a
+    # condition run either side of an upgrade is detectable rather than invisible.
+    backend_version: str
     supports_scoring: bool
     supports_logprobs: bool
 
