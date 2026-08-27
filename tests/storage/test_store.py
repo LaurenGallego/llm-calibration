@@ -89,28 +89,60 @@ def test_partition_path_agrees_with_the_row(store: ResultStore):
         ).fetchall() == [("mistralai__Mistral-7B-v0.1", "base", "mmlu")]
 
 
-def test_unfinished_run_does_not_count_as_completed(store: ResultStore):
-    # The guard that matters. A job killed at its walltime leaves valid rows behind;
-    # counting them as done makes the requeue skip questions nothing ever finished.
+def test_a_killed_run_keeps_the_work_it_finished(store: ResultStore):
+    # Resume counts written rows regardless of run status. Chunks are atomically
+    # renamed into place, so a row that exists is a whole result -- and requiring
+    # completion here would make a requeue recompute everything the killed job had
+    # already done, which is the whole reason chunked writes exist.
     manifest = make_manifest("run-killed")
     store.begin_run(manifest)
     store.write_chunk(manifest, *make_rows(QUESTIONS), seq=0)
 
-    assert store.completed_questions("cfg-a") == set()
+    assert store.completed_questions("cfg-a") == set(QUESTIONS)
+    # The condition is still not whole, and that is a separate guard, for analysis.
     assert store.incomplete_runs() == ["run-killed"]
 
-    store.finish_run("run-killed", RunStatus.COMPLETE, n_written=len(QUESTIONS))
-    assert store.completed_questions("cfg-a") == set(QUESTIONS)
-    assert store.incomplete_runs() == []
 
-
-def test_failed_run_never_counts_as_completed(store: ResultStore):
+def test_completion_is_tracked_separately_from_resume(store: ResultStore):
     manifest = make_manifest("run-failed")
     store.begin_run(manifest)
     store.write_chunk(manifest, *make_rows(QUESTIONS), seq=0)
     store.finish_run("run-failed", RunStatus.FAILED, n_written=len(QUESTIONS))
-    assert store.completed_questions("cfg-a") == set()
+
+    # Its rows are real and should not be recomputed...
+    assert store.completed_questions("cfg-a") == set(QUESTIONS)
+    # ...but the run never completed, so analysis must refuse the condition.
     assert store.incomplete_runs() == ["run-failed"]
+
+
+def test_a_question_row_never_exists_without_its_signals(store: ResultStore, monkeypatch):
+    """Signals are written before questions, and the order matters.
+
+    Resume keys on question rows. If a crash could leave a question row whose signals
+    were never written, resume would skip that question forever -- and it would then
+    count toward accuracy while contributing nothing to ECE.
+    """
+    manifest = make_manifest("run-crash")
+    store.begin_run(manifest)
+
+    original = ResultStore._write_atomic
+    written: list[str] = []
+
+    def crash_on_questions(self, table, path):
+        if "questions" in path.parts:
+            raise OSError("simulated crash between the two writes")
+        written.append(path.parts[-4])
+        return original(self, table, path)
+
+    monkeypatch.setattr(ResultStore, "_write_atomic", crash_on_questions)
+    with pytest.raises(OSError):
+        store.write_chunk(manifest, *make_rows(QUESTIONS), seq=0)
+
+    monkeypatch.undo()
+    # Signals landed, questions did not -- so resume recomputes the question rather
+    # than skipping one whose signals are missing.
+    assert store.completed_questions("cfg-a") == set()
+    assert list((store.root / "signals").rglob("*.parquet"))
 
 
 def test_resume_is_scoped_to_the_config(store: ResultStore):

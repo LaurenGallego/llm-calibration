@@ -115,13 +115,19 @@ class ResultStore:
         question_rows = [{**shared, **asdict(question)} for question in questions]
         signal_rows = [{**shared, **asdict(signal), "kind": str(signal.kind)} for signal in signals]
 
-        self._write_atomic(
-            pa.Table.from_pylist(question_rows, schema=QUESTIONS_SCHEMA),
-            self._chunk_path("questions", manifest, seq),
-        )
+        # Signals first, questions second, and the order is load-bearing. `resume` keys
+        # on question rows, so a question row must never exist without its signals: a
+        # crash between the two writes would otherwise leave a question that resume
+        # skips, which then contributes to accuracy while contributing nothing to ECE.
+        # The reverse crash leaves orphan signal rows, which are harmless -- they do not
+        # join, and a later run writes its own under a different run_id.
         self._write_atomic(
             pa.Table.from_pylist(signal_rows, schema=SIGNALS_SCHEMA),
             self._chunk_path("signals", manifest, seq),
+        )
+        self._write_atomic(
+            pa.Table.from_pylist(question_rows, schema=QUESTIONS_SCHEMA),
+            self._chunk_path("questions", manifest, seq),
         )
 
     def finish_run(self, run_id: str, status: RunStatus, n_written: int) -> None:
@@ -156,17 +162,23 @@ class ResultStore:
         return connection
 
     def completed_questions(self, config_hash: str) -> set[str]:
-        if not self._has_tables("questions", "runs"):
+        """Questions already computed under this config, for a requeued job to skip.
+
+        Deliberately does **not** filter on run status. Chunks are written by atomic
+        rename, so a row that exists is a whole, correct result whether or not the job
+        that produced it later hit its walltime -- and requiring `status = 'complete'`
+        here would make a requeue recompute everything a killed job had finished, which
+        is the entire reason chunked writes exist.
+
+        Run completion answers a different question: is this *condition* whole? That
+        guard belongs to `analysis/`, which refuses rows from runs without a
+        `completed_at` (see `incomplete_runs`). Two guards, two purposes.
+        """
+        if not self._has_tables("questions"):
             return set()
         with self.connect() as connection:
             rows = connection.execute(
-                """
-                SELECT DISTINCT q.question_id
-                FROM questions q JOIN runs r USING (run_id)
-                WHERE q.config_hash = ?
-                  AND r.status = 'complete'
-                  AND r.completed_at IS NOT NULL
-                """,
+                "SELECT DISTINCT question_id FROM questions WHERE config_hash = ?",
                 [config_hash],
             ).fetchall()
         return {row[0] for row in rows}

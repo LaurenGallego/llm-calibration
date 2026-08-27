@@ -223,3 +223,4 @@ docs/
 
 # VSCode
 .vscode/
+.DS_Store
