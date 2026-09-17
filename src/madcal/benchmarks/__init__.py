@@ -12,6 +12,8 @@ from madcal.benchmarks.base import (
     TaskFormat,
     answer_letter,
     benchmark_registry,
+    choice_answer_instruction,
+    extract_choice_letter,
     register_benchmark,
 )
 from madcal.benchmarks.mmlu import MMLU
@@ -24,5 +26,7 @@ __all__ = [
     "TaskFormat",
     "answer_letter",
     "benchmark_registry",
+    "choice_answer_instruction",
+    "extract_choice_letter",
     "register_benchmark",
 ]

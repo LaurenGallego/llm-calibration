@@ -1,6 +1,5 @@
 import json
 import random
-import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -8,15 +7,13 @@ from madcal.benchmarks.base import (
     Question,
     TaskFormat,
     answer_letter,
+    choice_answer_instruction,
+    extract_choice_letter,
     register_benchmark,
 )
 
 HF_DATASET = "cais/mmlu"
 REQUIRED_FIELDS = ("question", "subject", "choices", "answer")
-
-# OpenAI simple-evals' multiple-choice pattern. [ \t] rather than \s keeps the
-# letter on the same line as "Answer:", and \$? tolerates LaTeX-wrapped letters.
-ANSWER_PATTERN = re.compile(r"(?i)Answer[ \t]*:[ \t]*\$?([A-D])\$?")
 
 
 @register_benchmark("mmlu")
@@ -68,11 +65,15 @@ class MMLU:
             )
         return pool[:n_shots]
 
-    def extract_answer(self, response: str) -> str | None:
-        matches = ANSWER_PATTERN.findall(response)
-        if not matches:
-            return None
-        return matches[-1].upper()
+    def answer_instruction(self, question: Question) -> str:
+        if question.choices is None:
+            raise ValueError(f"MMLU question {question.id!r} has no choices")
+        return choice_answer_instruction(len(question.choices))
+
+    def extract_answer(self, response: str, n_choices: int | None) -> str | None:
+        if n_choices is None:
+            raise ValueError("MMLU is multiple choice; extract_answer needs n_choices")
+        return extract_choice_letter(response, n_choices)
 
     def grade(self, question: Question, extracted: str) -> bool:
         if not isinstance(extracted, str):

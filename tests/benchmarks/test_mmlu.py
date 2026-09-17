@@ -43,7 +43,7 @@ def test_fixture_row_maps_end_to_end(mmlu):
     ],
 )
 def test_extract_answer(mmlu, response, expected):
-    assert mmlu.extract_answer(response) == expected
+    assert mmlu.extract_answer(response, 4) == expected
 
 
 def test_sampling_is_deterministic(mmlu):
@@ -118,3 +118,15 @@ def test_zero_shot_needs_no_pool():
         )
         == ()
     )
+
+
+def test_answer_instruction_names_every_valid_letter(mmlu):
+    question = mmlu.load()[0]
+    assert mmlu.answer_instruction(question) == (
+        "State your final answer on its own line as 'Answer: X', where X is one of A, B, C, D."
+    )
+
+
+def test_extraction_without_a_choice_count_is_refused(mmlu):
+    with pytest.raises(ValueError, match="n_choices"):
+        mmlu.extract_answer("Answer: A", None)
