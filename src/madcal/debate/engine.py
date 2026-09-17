@@ -1,5 +1,6 @@
 """The debate round loop."""
 
+import hashlib
 from collections.abc import Sequence
 
 from madcal.debate.base import (
@@ -55,7 +56,7 @@ def run_debate(
         [render(per_agent[0]) for per_agent in histories],
         config.n_agents,
         config,
-        seed,
+        round_seed(seed, 0),
     )
     latest = [
         [
@@ -75,7 +76,7 @@ def run_debate(
                 history.append(Message(Role.ASSISTANT, previous[index].text))
                 history.append(Message(Role.USER, update_request(peers, mode)))
                 prompts.append(render(history))
-        samples = _generate(adapter, prompts, 1, config, seed)
+        samples = _generate(adapter, prompts, 1, config, round_seed(seed, round_))
         latest = [
             [
                 _turn(
@@ -118,6 +119,14 @@ def update_request(peer_texts: Sequence[str], mode: ConfidenceMode) -> str:
     if mode.instruction is not None:
         parts.append(mode.instruction)
     return "\n\n".join(parts)
+
+
+def round_seed(seed: int | None, round_: int) -> int | None:
+    """Return an independent seed for one round derived from the debate seed."""
+    if seed is None:
+        return None
+    digest = hashlib.sha256(f"{seed}:{round_}".encode()).digest()
+    return int.from_bytes(digest[:4], "big")
 
 
 def _generate(

@@ -19,7 +19,7 @@ from madcal.debate.base import (
     confidence_mode_registry,
 )
 from madcal.debate.confidence import VERBALIZED_INSTRUCTION
-from madcal.debate.engine import opening_request, run_debate, update_request
+from madcal.debate.engine import opening_request, round_seed, run_debate, update_request
 from madcal.debate.protocols import PRESETS, preset
 
 __all__ = [
@@ -44,6 +44,7 @@ __all__ = [
     "majority_vote",
     "opening_request",
     "preset",
+    "round_seed",
     "run_debate",
     "update_request",
 ]

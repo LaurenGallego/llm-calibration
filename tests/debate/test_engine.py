@@ -10,6 +10,7 @@ from madcal.debate import (
     Message,
     SystemNull,
     preset,
+    round_seed,
     run_debate,
 )
 from madcal.models import Generation, StubAdapter
@@ -34,9 +35,11 @@ class RecordingAdapter(StubAdapter):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.calls: list[tuple[list[str], int]] = []
+        self.seeds: list[int | None] = []
 
     def generate(self, prompts, n=1, temperature=0.0, max_tokens=512, seed=None):
         self.calls.append((list(prompts), n))
+        self.seeds.append(seed)
         return super().generate(prompts, n, temperature, max_tokens, seed)
 
 
@@ -73,7 +76,7 @@ def test_round_zero_agents_are_independent_samples():
     transcripts = debate("vanilla", questions=[DebateQuestion("q", "Some question?", 4)] * 1)
     texts = [turn.text for turn in transcripts[0].round_turns(0)]
     samples = StubAdapter(response_template=TEMPLATE).generate(
-        ["[user] Some question?"], n=3, temperature=1.0, seed=0
+        ["[user] Some question?"], n=3, temperature=1.0, seed=round_seed(0, 0)
     )[0]
     assert texts == [sample.text for sample in samples]
 
@@ -199,3 +202,15 @@ def test_verbalized_mode_asks_for_confidence_in_every_request():
     run_debate(QUESTIONS, config, adapter, render, extract, seed=0)
     prompts = [prompt for call_prompts, _ in adapter.calls for prompt in call_prompts]
     assert all(VERBALIZED_INSTRUCTION in prompt for prompt in prompts)
+
+
+def test_each_round_samples_with_its_own_seed():
+    adapter = RecordingAdapter(response_template=TEMPLATE)
+    debate("vanilla", adapter)
+    assert adapter.seeds == [round_seed(0, 0), round_seed(0, 1), round_seed(0, 2)]
+    assert len(set(adapter.seeds)) == 3
+
+
+def test_round_seed_is_stable_and_absent_without_a_debate_seed():
+    assert round_seed(0, 1) == 4011020074
+    assert round_seed(None, 1) is None
