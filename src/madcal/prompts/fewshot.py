@@ -31,7 +31,12 @@ being confounded with alignment stage.
 from collections.abc import Sequence
 
 from madcal.benchmarks import LETTERS, Question
-from madcal.prompts.base import CONTINUATION_PREFIX, RenderedPrompt, register_prompt
+from madcal.prompts.base import (
+    CONTINUATION_PREFIX,
+    RenderedPrompt,
+    question_with_choices,
+    register_prompt,
+)
 
 # lm-evaluation-harness prepends this per subject. {subject} is filled from
 # Question.metadata.
@@ -94,12 +99,7 @@ class FewShotCompletion:
         return RenderedPrompt(text=text, continuations=self._continuations(question))
 
     def _block(self, question: Question, *, include_answer: bool) -> str:
-        body = question.body.strip()
-        if question.choices is not None:
-            choices_lines = "\n".join(
-                f"{LETTERS[i]}. {choice}" for i, choice in enumerate(question.choices)
-            )
-            body += "\n" + choices_lines
+        body = question_with_choices(question)
         answer_line = ANSWER_CUE + (f" {question.answer}" if include_answer else "")
         return body + "\n" + answer_line
 

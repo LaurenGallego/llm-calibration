@@ -31,7 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from madcal.benchmarks import Question
+from madcal.benchmarks import LETTERS, Question
 from madcal.registry import Registry
 
 # The space between the answer cue and the answer token. It lives on the
@@ -90,6 +90,17 @@ class PromptProtocol(Protocol):
         condition than the one the config asked for.
         """
         ...
+
+
+def question_with_choices(question: Question) -> str:
+    """Return the question body followed by its lettered choices, one per line."""
+    body = question.body.strip()
+    if question.choices is None:
+        return body
+    lines = "\n".join(
+        f"{LETTERS[index]}. {choice}" for index, choice in enumerate(question.choices)
+    )
+    return f"{body}\n{lines}"
 
 
 prompt_registry: Registry[type[PromptProtocol]] = Registry("prompt protocol")

@@ -10,8 +10,10 @@ from madcal.prompts.base import (
     PromptProtocol,
     RenderedPrompt,
     prompt_registry,
+    question_with_choices,
     register_prompt,
 )
+from madcal.prompts.chat import ChatTemplate
 from madcal.prompts.fewshot import (
     ANSWER_CUE,
     BLOCK_SEPARATOR,
@@ -22,9 +24,11 @@ __all__ = [
     "ANSWER_CUE",
     "BLOCK_SEPARATOR",
     "CONTINUATION_PREFIX",
+    "ChatTemplate",
     "FewShotCompletion",
     "PromptProtocol",
     "RenderedPrompt",
     "prompt_registry",
+    "question_with_choices",
     "register_prompt",
 ]
