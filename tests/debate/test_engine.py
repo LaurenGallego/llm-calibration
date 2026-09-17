@@ -16,7 +16,7 @@ from madcal.models import Generation, StubAdapter
 from madcal.signals import SignalNull
 
 TEMPLATE = "Answer: {letter}\nConfidence: {confidence}%"
-QUESTIONS = [DebateQuestion(f"q{index}", f"Question number {index}?") for index in range(4)]
+QUESTIONS = [DebateQuestion(f"q{index}", f"Question number {index}?", 4) for index in range(4)]
 SETTINGS = {"best_of_n": {"n_agents": 3}}
 
 
@@ -24,7 +24,8 @@ def render(messages: Sequence[Message]) -> str:
     return "\n".join(f"[{message.role}] {message.content}" for message in messages)
 
 
-def extract(text: str) -> str | None:
+def extract(text: str, n_choices: int | None) -> str | None:
+    assert n_choices == 4
     matches = re.findall(r"Answer: ([A-D])", text)
     return matches[-1] if matches else None
 
@@ -69,7 +70,7 @@ def test_round_zero_is_one_call_sampling_every_agent_from_the_shared_prompt():
 
 
 def test_round_zero_agents_are_independent_samples():
-    transcripts = debate("vanilla", questions=[DebateQuestion("q", "Some question?")] * 1)
+    transcripts = debate("vanilla", questions=[DebateQuestion("q", "Some question?", 4)] * 1)
     texts = [turn.text for turn in transcripts[0].round_turns(0)]
     samples = StubAdapter(response_template=TEMPLATE).generate(
         ["[user] Some question?"], n=3, temperature=1.0, seed=0
@@ -104,7 +105,7 @@ SCRIPT = [
 
 def scripted_vanilla(script=SCRIPT):
     adapter = ScriptedAdapter(script)
-    question = DebateQuestion("q", "Some question?")
+    question = DebateQuestion("q", "Some question?", 4)
     transcript = run_debate(
         [question], preset("vanilla", temperature=1.0), adapter, render, extract, seed=0
     )[0]

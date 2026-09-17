@@ -59,10 +59,10 @@ def run_debate(
     )
     latest = [
         [
-            _turn(agents[index], 0, sample, extract_answer, mode)
+            _turn(agents[index], 0, sample, question, extract_answer, mode)
             for index, sample in enumerate(samples)
         ]
-        for samples in opening
+        for question, samples in zip(questions, opening, strict=True)
     ]
     turns = [list(round_turns) for round_turns in latest]
 
@@ -82,6 +82,7 @@ def run_debate(
                     agents[index],
                     round_,
                     samples[question_index * config.n_agents + index][0],
+                    questions[question_index],
                     extract_answer,
                     mode,
                 )
@@ -145,6 +146,7 @@ def _turn(
     agent: str,
     round_: int,
     generation: Generation,
+    question: DebateQuestion,
     extract_answer: AnswerExtractor,
     mode: ConfidenceMode,
 ) -> AgentTurn:
@@ -152,6 +154,6 @@ def _turn(
         agent_id=agent,
         round=round_,
         text=generation.text,
-        answer=extract_answer(generation.text),
+        answer=extract_answer(generation.text, question.n_choices),
         confidence=mode.parse(generation.text),
     )

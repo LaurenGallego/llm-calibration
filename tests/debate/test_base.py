@@ -82,7 +82,12 @@ def test_system_answer_invariants(answer, confidence, reason):
 
 def test_empty_question_text_is_refused():
     with pytest.raises(ValueError, match="empty text"):
-        DebateQuestion("q", "   ")
+        DebateQuestion("q", "   ", None)
+
+
+def test_question_with_fewer_than_two_choices_is_refused():
+    with pytest.raises(ValueError, match="at least 2 choices"):
+        DebateQuestion("q", "Which?", 1)
 
 
 def test_majority_with_even_agents_is_refused():

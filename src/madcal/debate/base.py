@@ -24,7 +24,7 @@ class Message:
 
 
 type Renderer = Callable[[Sequence[Message]], str]
-type AnswerExtractor = Callable[[str], str | None]
+type AnswerExtractor = Callable[[str, int | None], str | None]
 
 
 def agent_id(index: int) -> str:
@@ -34,16 +34,19 @@ def agent_id(index: int) -> str:
 
 @dataclass(frozen=True, slots=True)
 class DebateQuestion:
-    """An answer-free question: its id and the text every agent is shown."""
+    """An answer-free question: its id, the text every agent is shown, and its option count."""
 
     question_id: str
     text: str
+    n_choices: int | None
 
     def __post_init__(self) -> None:
         if not self.question_id:
             raise ValueError("question_id must be non-empty")
         if not self.text.strip():
             raise ValueError(f"question {self.question_id!r} has empty text")
+        if self.n_choices is not None and self.n_choices < 2:
+            raise ValueError(f"question {self.question_id!r} needs at least 2 choices")
 
 
 @dataclass(frozen=True, slots=True)
