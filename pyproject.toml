@@ -1,7 +1,7 @@
 [project]
-name = "caldrift"
+name = "madcal"
 version = "0.0.1"
-description = "Detecting calibration drift in LLMs from unlabeled confidence signals"
+description = "Measuring how per-agent calibration error propagates through multi-agent debate"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "datasets>=3.0",
@@ -33,7 +33,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/caldrift"]
+packages = ["src/madcal"]
 
 [tool.ruff]
 line-length = 100
@@ -53,23 +53,27 @@ include = ["src", "tests"]
 typeCheckingMode = "standard"
 
 [tool.importlinter]
-root_packages = ["caldrift"]
+root_packages = ["madcal"]
 
-# The label-leakage boundary, machine-checked. `benchmarks` is on this list because
-# `Question.answer` *is* the ground-truth label, not only because of what the package
-# is named -- the original "signals must not import metrics" rule left that hole open.
-# Indirect chains count: signals -> judges -> benchmarks breaks this too, which is the
-# case that will actually matter once `judges/` exists.
-#
-# Modules must exist to be listed. `caldrift.judges`, `caldrift.drift`,
-# `caldrift.orchestration` and `caldrift.analysis` are added to `forbidden_modules` by
-# the commit that creates each of them.
 [[tool.importlinter.contracts]]
 name = "signals never reach a label"
 type = "forbidden"
-source_modules = ["caldrift.signals"]
+source_modules = ["madcal.signals"]
 forbidden_modules = [
-    "caldrift.benchmarks",
-    "caldrift.metrics",
-    "caldrift.storage",
+    "madcal.benchmarks",
+    "madcal.debate",
+    "madcal.metrics",
+    "madcal.orchestration",
+    "madcal.storage",
+]
+
+[[tool.importlinter.contracts]]
+name = "debate engine never reaches a label or storage"
+type = "forbidden"
+source_modules = ["madcal.debate"]
+forbidden_modules = [
+    "madcal.benchmarks",
+    "madcal.metrics",
+    "madcal.orchestration",
+    "madcal.storage",
 ]

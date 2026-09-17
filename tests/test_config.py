@@ -8,7 +8,7 @@ ordinary throughput tweak discard every row already computed.
 import pytest
 from pydantic import ValidationError
 
-from caldrift.config import RunConfig
+from madcal.config import RunConfig
 
 BASE = {
     "model": {"name": "transformers", "model_id": "mistralai/Mistral-7B-v0.1", "stage": "base"},

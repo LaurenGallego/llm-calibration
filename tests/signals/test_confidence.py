@@ -8,8 +8,8 @@ import math
 
 import pytest
 
-from caldrift.models import ChoiceScores
-from caldrift.signals import Confidence, Evidence, SignalNull
+from madcal.models import ChoiceScores
+from madcal.signals import Confidence, Evidence, SignalNull
 
 # The worked example from DEVLOG: raw option probabilities 0.55 / 0.15 / 0.06 / 0.04,
 # which put 0.80 of the model's mass on the four options and 0.20 elsewhere.

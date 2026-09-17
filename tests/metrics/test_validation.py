@@ -7,7 +7,7 @@ the metric without leaving a trace in the results. See CLAUDE.md.
 import numpy as np
 import pytest
 
-from caldrift.metrics import expected_calibration_error, metric_registry, validate_inputs
+from madcal.metrics import expected_calibration_error, metric_registry, validate_inputs
 
 
 def test_length_mismatch_raises():

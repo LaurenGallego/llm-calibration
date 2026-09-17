@@ -1,6 +1,6 @@
 import pytest
 
-from caldrift.metrics import brier_score
+from madcal.metrics import brier_score
 
 from .test_ece import REF_CONF, REF_CORRECT
 

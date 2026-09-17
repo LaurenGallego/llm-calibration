@@ -8,7 +8,7 @@ ECE without changing anything a reader would notice.
 
 import pytest
 
-from caldrift.storage import QuestionRow, SignalKind, SignalRow, model_slug
+from madcal.storage import QuestionRow, SignalKind, SignalRow, model_slug
 
 
 @pytest.mark.parametrize(

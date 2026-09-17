@@ -8,7 +8,7 @@ ECE is silent and invalidates every downstream result.
 import numpy as np
 import pytest
 
-from caldrift.metrics import bin_statistics, confidence_accuracy_gap, expected_calibration_error
+from madcal.metrics import bin_statistics, confidence_accuracy_gap, expected_calibration_error
 
 # Reference case, reused across tests. Ten questions, one per half-decile, with
 # five equal-width bins (edges 0.0 / 0.2 / 0.4 / 0.6 / 0.8 / 1.0), so exactly two

@@ -9,8 +9,8 @@ import math
 
 import pytest
 
-from caldrift.models import ChoiceScores
-from caldrift.signals import (
+from madcal.models import ChoiceScores
+from madcal.signals import (
     ConfidenceEntropy,
     Evidence,
     SignalNull,

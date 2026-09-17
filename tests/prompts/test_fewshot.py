@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from caldrift.benchmarks import MMLU
-from caldrift.prompts import ANSWER_CUE, BLOCK_SEPARATOR, FewShotCompletion
+from madcal.benchmarks import MMLU
+from madcal.prompts import ANSWER_CUE, BLOCK_SEPARATOR, FewShotCompletion
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "mmlu_sample.jsonl"
 

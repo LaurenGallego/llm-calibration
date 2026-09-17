@@ -7,7 +7,7 @@ silent and would land in a stored row.
 
 import pytest
 
-from caldrift.signals import SignalNull, SignalValue
+from madcal.signals import SignalNull, SignalValue
 
 
 def test_a_value_and_a_reason_together_are_rejected():

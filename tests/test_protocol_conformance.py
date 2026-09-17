@@ -10,11 +10,11 @@ There is nothing to run -- the value is entirely in `uv run pyright`. The test
 below exists so the file is not mistaken for dead code.
 """
 
-from caldrift.benchmarks import MMLU, Benchmark
-from caldrift.metrics import CalibrationMetric, brier_score, expected_calibration_error
-from caldrift.models import ModelAdapter, StubAdapter, TransformersAdapter
-from caldrift.prompts import FewShotCompletion, PromptProtocol
-from caldrift.signals import Confidence, ConfidenceEntropy, Signal
+from madcal.benchmarks import MMLU, Benchmark
+from madcal.metrics import CalibrationMetric, brier_score, expected_calibration_error
+from madcal.models import ModelAdapter, StubAdapter, TransformersAdapter
+from madcal.prompts import FewShotCompletion, PromptProtocol
+from madcal.signals import Confidence, ConfidenceEntropy, Signal
 
 BENCHMARK_MMLU: type[Benchmark] = MMLU
 MODEL_STUB: type[ModelAdapter] = StubAdapter

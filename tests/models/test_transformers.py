@@ -16,7 +16,7 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from caldrift.models import TransformersAdapter
+from madcal.models import TransformersAdapter
 
 TINY_MODEL = "sshleifer/tiny-gpt2"
 PROMPT = "What is 2+2?\nAnswer:"

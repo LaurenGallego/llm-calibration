@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from caldrift.storage import (
+from madcal.storage import (
     QuestionRow,
     ResultStore,
     RunManifest,

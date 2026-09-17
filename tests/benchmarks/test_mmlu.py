@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from caldrift.benchmarks import MMLU, TaskFormat
+from madcal.benchmarks import MMLU, TaskFormat
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "mmlu_sample.jsonl"
 

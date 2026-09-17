@@ -9,7 +9,7 @@ is useful for depends on those two properties.
 
 import pytest
 
-from caldrift.models import StubAdapter
+from madcal.models import StubAdapter
 
 CHOICES = ("A", "B", "C", "D")
 
