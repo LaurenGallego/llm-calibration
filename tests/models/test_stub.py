@@ -118,3 +118,11 @@ def test_score_choices_rejects_misaligned_input(stub, prompts, choices):
     """Misalignment would silently score the wrong options against the wrong prompt."""
     with pytest.raises(ValueError):
         stub.score_choices(prompts, choices)
+
+
+def test_confidence_placeholder_is_the_renormalised_probability_of_the_answer(stub):
+    templated = StubAdapter(response_template="Answer: {letter} Confidence: {confidence}%")
+    probabilities = stub.score_choices(["q1"], [CHOICES])[0].probabilities()
+    text = templated.generate(["q1"], temperature=0.0)[0][0].text
+    assert text == f"Answer: D Confidence: {round(100 * max(probabilities))}%"
+    assert text == "Answer: D Confidence: 36%"

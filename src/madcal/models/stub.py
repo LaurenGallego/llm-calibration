@@ -91,7 +91,10 @@ class StubAdapter:
                 letter = self.LETTERS[index]
                 samples.append(
                     Generation(
-                        text=self.response_template.format(letter=letter),
+                        text=self.response_template.format(
+                            letter=letter,
+                            confidence=round(100 * probs[index] / sum(probs)),
+                        ),
                         token_logprobs=(math.log(probs[index]),),
                         tokens=(letter,),
                         finish_reason="stop",
