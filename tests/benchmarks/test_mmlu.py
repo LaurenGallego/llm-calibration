@@ -35,9 +35,8 @@ def test_fixture_row_maps_end_to_end(mmlu):
         ("Answer: A", "A"),
         ("answer: c", "C"),
         ("Answer: A\nWait, reconsidering.\nAnswer: D", "D"),
-        ("It's not A, so... Answer: C", "C"),
-        # Deliberately strict: both are readable to a human and still rejected,
-        # so relaxing the pattern later has to fail a test first.
+        ("It's not A, so...\nAnswer: C", "C"),
+        ("It's not A, so... Answer: C", None),
         ("The answer is D", None),
         ("Answer:\nB", None),
     ],

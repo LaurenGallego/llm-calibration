@@ -92,7 +92,7 @@ def choice_answer_instruction(n_choices: int) -> str:
 
 
 def extract_choice_letter(response: str, n_choices: int) -> str | None:
-    """Return the last `Answer: X` letter valid for `n_choices` options, or None."""
+    """Return the letter of the last line consisting only of `Answer: X`, or None."""
     matches = _choice_pattern(n_choices).findall(response)
     if not matches:
         return None
@@ -102,7 +102,12 @@ def extract_choice_letter(response: str, n_choices: int) -> str | None:
 @cache
 def _choice_pattern(n_choices: int) -> re.Pattern[str]:
     letters = _choice_letters(n_choices)
-    return re.compile(rf"(?i)Answer[ \t]*:[ \t]*\$?([{letters}])\$?")
+    bold = r"(?:\*\*)?"
+    space = r"[ \t]*"
+    letter = rf"\$?([{letters}])\$?"
+    return re.compile(
+        rf"(?im)^{space}{bold}Answer{space}:{space}{bold}{space}{letter}{space}{bold}[ \t\r]*$"
+    )
 
 
 def _choice_letters(n_choices: int) -> str:

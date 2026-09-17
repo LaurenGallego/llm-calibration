@@ -4,6 +4,27 @@ from madcal.benchmarks import choice_answer_instruction, extract_choice_letter
 
 
 @pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ("Reasoning.\nAnswer: B", "B"),
+        ("Reasoning.\n  Answer: B  \n\nThanks.", "B"),
+        ("Reasoning.\n**Answer: B**", "B"),
+        ("Reasoning.\n**Answer:** B", "B"),
+        ("Reasoning.\r\nAnswer: B\r\n", "B"),
+        ("Answer: A\nOn reflection.\nAnswer: C", "C"),
+        ('Both agents stated "Answer: B". I cannot say.', None),
+        ("- Answer: B (Correct)", None),
+        ("Answer: B because it is the pancreas", None),
+        ("The correct answer is B.", None),
+        ("Answer:\nB", None),
+        ('My peer wrote "Answer: A".\nAnswer: C', "C"),
+    ],
+)
+def test_answer_must_sit_alone_on_its_line(response, expected):
+    assert extract_choice_letter(response, 4) == expected
+
+
+@pytest.mark.parametrize(
     ("response", "n_choices", "expected"),
     [
         ("Answer: C", 3, "C"),
