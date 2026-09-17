@@ -38,6 +38,7 @@ from madcal.registry import Registry
 class SignalNull(StrEnum):
     NO_CHOICE_SCORES = "no_choice_scores"
     NOT_APPLICABLE = "not_applicable"
+    PARSE_FAILED = "parse_failed"
 
 
 @dataclass(frozen=True, slots=True)

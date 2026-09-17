@@ -25,6 +25,7 @@ from madcal.signals.entropy import (
     residual_distribution,
     shannon_entropy,
 )
+from madcal.signals.verbalized import parse_verbalized_confidence
 
 __all__ = [
     "Confidence",
@@ -35,6 +36,7 @@ __all__ = [
     "SignalNull",
     "SignalValue",
     "applicable",
+    "parse_verbalized_confidence",
     "register_signal",
     "residual_distribution",
     "shannon_entropy",
