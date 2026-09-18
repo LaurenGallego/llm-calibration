@@ -22,6 +22,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from madcal.debate import PRESETS, DebateConfig, preset
 from madcal.storage import Variant
 
 # Fields recorded per row and verified by analysis rather than hashed into the identity
@@ -85,37 +86,44 @@ BenchmarkConfig = Annotated[MMLUBenchmarkConfig, Field(discriminator="name")]
 
 
 class PromptConfig(_Strict):
-    name: str = "fewshot_completion"
-    n_shots: int = Field(default=5, ge=0)
+    name: str = "chat_template"
+    n_shots: int = Field(default=0, ge=0)
+
+
+class DebateSettings(_Strict):
+    protocol: str
+    temperature: float = Field(ge=0.0)
+    n_agents: int | None = Field(default=None, ge=1)
+    max_tokens: int = Field(default=512, ge=1)
+
+    def resolve(self) -> DebateConfig:
+        """Return the debate configuration this block names."""
+        if self.protocol not in PRESETS:
+            raise ValueError(f"unknown protocol {self.protocol!r}; known: {sorted(PRESETS)}")
+        settings: dict[str, object] = {
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+        if self.n_agents is not None:
+            settings["n_agents"] = self.n_agents
+        return preset(self.protocol, **settings)
 
 
 class RunConfig(_Strict):
     model: ModelConfig
     benchmark: BenchmarkConfig = MMLUBenchmarkConfig()
     prompt: PromptConfig = PromptConfig()
-    scoring_mode: Literal["likelihood", "generative"] = "likelihood"
-    temperature: float = Field(default=0.0, ge=0.0)
-    n_samples: int = Field(default=1, ge=1)
-    max_tokens: int = Field(default=512, ge=1)
+    debate: DebateSettings
     seed: int = 0
     # Questions per stored Parquet chunk. Smaller means a walltime kill loses less;
     # larger means fewer files. It changes nothing about the numbers, so it is an
     # environment field and does not enter config_hash.
     chunk_size: int = Field(default=200, ge=1)
-    # None means every registered signal. A list pins the set, so a run cannot silently
-    # gain a signal because one was added to the registry between submissions.
-    signals: tuple[str, ...] | None = None
     output_root: Path
 
     @model_validator(mode="after")
-    def _sampling_is_coherent(self) -> Self:
-        if self.temperature == 0.0 and self.n_samples > 1:
-            raise ValueError(
-                "temperature=0 is greedy and cannot produce n_samples>1 distinct samples; "
-                "n identical answers would read as perfect agreement to a resampling signal"
-            )
-        if self.scoring_mode == "likelihood" and self.n_samples > 1:
-            raise ValueError("n_samples>1 has no meaning on the likelihood path")
+    def _debate_is_buildable(self) -> Self:
+        self.debate.resolve()
         return self
 
     def config_hash(self, checkpoint_sha: str) -> str:

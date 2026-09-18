@@ -12,6 +12,7 @@ from madcal.config import RunConfig
 
 BASE = {
     "model": {"name": "transformers", "model_id": "mistralai/Mistral-7B-v0.1", "variant": "base"},
+    "debate": {"protocol": "vanilla", "temperature": 1.0},
     "output_root": "results",
 }
 SHA = "a" * 40
@@ -41,10 +42,12 @@ def test_environment_fields_do_not_move_the_hash():
 @pytest.mark.parametrize(
     "override",
     [
-        {"prompt": {"n_shots": 0}},
-        {"scoring_mode": "generative"},
+        {"prompt": {"name": "plain_chat"}},
         {"seed": 99},
         {"benchmark": {"name": "mmlu", "revision": "abc123"}},
+        {"debate": {"protocol": "vanilla", "temperature": 0.7}},
+        {"debate": {"protocol": "best_of_n", "temperature": 1.0, "n_agents": 3}},
+        {"debate": {"protocol": "vanilla", "temperature": 1.0, "max_tokens": 256}},
     ],
 )
 def test_experimental_fields_move_the_hash(override):
@@ -75,14 +78,22 @@ def test_a_mistyped_key_is_an_error_not_a_default():
 
 def test_settings_that_do_not_apply_to_an_adapter_are_refused():
     with pytest.raises(ValidationError, match="Extra inputs"):
-        RunConfig.model_validate(
-            {"model": {"name": "stub", "dtype": "float16"}, "output_root": "r"}
-        )
+        RunConfig.model_validate({**BASE, "model": {"name": "stub", "dtype": "float16"}})
 
 
-def test_greedy_resampling_is_refused_at_config_time():
-    with pytest.raises(ValidationError, match="cannot produce"):
-        build(n_samples=4)
+def test_greedy_debate_is_refused_at_config_time():
+    with pytest.raises(ValidationError, match="identical"):
+        build(debate={"protocol": "vanilla", "temperature": 0.0})
+
+
+def test_an_unknown_protocol_is_refused_at_config_time():
+    with pytest.raises(ValidationError, match="unknown protocol"):
+        build(debate={"protocol": "nonexistent", "temperature": 1.0})
+
+
+def test_a_config_must_name_its_protocol():
+    with pytest.raises(ValidationError, match="debate"):
+        RunConfig.model_validate({k: v for k, v in BASE.items() if k != "debate"})
 
 
 def test_a_run_cannot_be_narrowed_to_a_subset():
