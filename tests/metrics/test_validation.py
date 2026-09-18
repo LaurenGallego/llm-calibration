@@ -54,6 +54,7 @@ def test_registry_exposes_every_metric():
         "brier",
         "confidence_accuracy_gap",
         "ece",
+        "ece_debiased",
         "ece_equal_mass",
     }
 

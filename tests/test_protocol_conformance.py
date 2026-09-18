@@ -15,6 +15,7 @@ from madcal.metrics import (
     CalibrationMetric,
     auroc,
     brier_score,
+    ece_debiased,
     ece_equal_mass,
     expected_calibration_error,
 )
@@ -32,6 +33,7 @@ METRIC_ECE: CalibrationMetric = expected_calibration_error
 METRIC_BRIER: CalibrationMetric = brier_score
 METRIC_ECE_EQUAL_MASS: CalibrationMetric = ece_equal_mass
 METRIC_AUROC: CalibrationMetric = auroc
+METRIC_ECE_DEBIASED: CalibrationMetric = ece_debiased
 
 
 def test_implementations_are_bound_to_their_protocols():
