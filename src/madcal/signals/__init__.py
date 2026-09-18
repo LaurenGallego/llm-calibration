@@ -18,6 +18,7 @@ from madcal.signals.base import (
     applicable,
     register_signal,
     signal_registry,
+    sole_generation,
 )
 from madcal.signals.confidence import Confidence
 from madcal.signals.entropy import (
@@ -25,20 +26,24 @@ from madcal.signals.entropy import (
     residual_distribution,
     shannon_entropy,
 )
-from madcal.signals.verbalized import parse_verbalized_confidence
+from madcal.signals.likelihood import LengthNormalisedLikelihood
+from madcal.signals.verbalized import VerbalizedConfidence, parse_verbalized_confidence
 
 __all__ = [
     "Confidence",
     "ConfidenceEntropy",
     "Evidence",
+    "LengthNormalisedLikelihood",
     "Requirements",
     "Signal",
     "SignalNull",
     "SignalValue",
+    "VerbalizedConfidence",
     "applicable",
     "parse_verbalized_confidence",
     "register_signal",
     "residual_distribution",
     "shannon_entropy",
     "signal_registry",
+    "sole_generation",
 ]
