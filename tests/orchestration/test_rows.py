@@ -4,6 +4,7 @@ import pytest
 
 from madcal.benchmarks import MMLU
 from madcal.debate import AgentTurn, DebateTranscript, SystemAnswer, SystemNull, agent_id
+from madcal.models import Generation
 from madcal.orchestration import STATED_CONFIDENCE, SYSTEM_CONFIDENCE, transcript_rows
 from madcal.signals import SignalNull, SignalValue
 from madcal.storage import AnswerNull, Level, SignalKind
@@ -29,7 +30,8 @@ def turn(agent: int, round_: int, answer: str | None, confidence: float | None =
         if confidence is not None
         else SignalValue(None, SignalNull.PARSE_FAILED)
     )
-    return AgentTurn(agent_id(agent), round_, "text", answer, value, "stop")
+    generation = Generation(text="text", token_logprobs=None, tokens=None, finish_reason="stop")
+    return AgentTurn(agent_id(agent), round_, generation, answer, value)
 
 
 def make_transcript(question_id: str, answers, system: SystemAnswer) -> DebateTranscript:

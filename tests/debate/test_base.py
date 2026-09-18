@@ -10,13 +10,18 @@ from madcal.debate import (
     SystemNull,
     agent_id,
 )
+from madcal.models import Generation
 from madcal.signals import SignalNull, SignalValue
 
 NO_CONFIDENCE = SignalValue(None, SignalNull.NOT_APPLICABLE)
 
 
+def generation(text: str = "Answer: A", finish_reason: str = "stop") -> Generation:
+    return Generation(text=text, token_logprobs=None, tokens=None, finish_reason=finish_reason)
+
+
 def turn(agent: int, round_: int) -> AgentTurn:
-    return AgentTurn(agent_id(agent), round_, "Answer: A", "A", NO_CONFIDENCE, "stop")
+    return AgentTurn(agent_id(agent), round_, generation(), "A", NO_CONFIDENCE)
 
 
 def config(**overrides) -> DebateConfig:
@@ -57,17 +62,24 @@ def test_truncated_duplicated_or_misordered_transcript_is_refused(turns):
 
 def test_turn_confidence_outside_unit_interval_is_refused():
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
-        AgentTurn("agent_0", 0, "text", "A", SignalValue(1.5), "stop")
+        AgentTurn("agent_0", 0, generation(), "A", SignalValue(1.5))
 
 
 def test_negative_round_is_refused():
     with pytest.raises(ValueError, match="round"):
-        AgentTurn("agent_0", -1, "text", "A", NO_CONFIDENCE, "stop")
+        AgentTurn("agent_0", -1, generation(), "A", NO_CONFIDENCE)
 
 
-def test_unknown_finish_reason_is_refused():
-    with pytest.raises(ValueError, match="finish_reason"):
-        AgentTurn("agent_0", 0, "text", "A", NO_CONFIDENCE, "truncated")
+def test_turn_text_and_finish_reason_come_from_its_generation():
+    agent_turn = AgentTurn("agent_0", 0, generation("Answer: C", "length"), "C", NO_CONFIDENCE)
+    assert agent_turn.text == "Answer: C"
+    assert agent_turn.finish_reason == "length"
+
+
+def test_turn_evidence_carries_its_generation_and_no_scores():
+    agent_turn = AgentTurn("agent_0", 0, generation(), "A", NO_CONFIDENCE)
+    assert agent_turn.evidence.generations == (agent_turn.generation,)
+    assert agent_turn.evidence.scores is None
 
 
 @pytest.mark.parametrize(

@@ -8,9 +8,9 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from madcal.models.base import FINISHING_REASONS
+from madcal.models.base import Generation
 from madcal.registry import Registry
-from madcal.signals import SignalValue
+from madcal.signals import Evidence, SignalNull, SignalValue, signal_registry
 
 
 class Role(StrEnum):
@@ -52,23 +52,35 @@ class DebateQuestion:
 
 @dataclass(frozen=True, slots=True)
 class AgentTurn:
-    """One agent's response at one round."""
+    """One agent's response at one round: what the model produced, and what was read out of it."""
 
     agent_id: str
     round: int
-    text: str
+    generation: Generation
     answer: str | None
     confidence: SignalValue
-    finish_reason: str
 
     def __post_init__(self) -> None:
         if self.round < 0:
             raise ValueError(f"round must be >= 0, got {self.round}")
-        if self.finish_reason not in FINISHING_REASONS:
-            raise ValueError(f"finish_reason {self.finish_reason!r} not in {FINISHING_REASONS}")
         value = self.confidence.value
         if value is not None and not 0.0 <= value <= 1.0:
             raise ValueError(f"confidence must be in [0, 1], got {value}")
+
+    @property
+    def text(self) -> str:
+        """The response text the agent produced."""
+        return self.generation.text
+
+    @property
+    def finish_reason(self) -> str:
+        """Why the agent's response ended."""
+        return self.generation.finish_reason
+
+    @property
+    def evidence(self) -> Evidence:
+        """The answer-free evidence a signal is computed from for this turn."""
+        return Evidence(generations=(self.generation,))
 
 
 class SystemNull(StrEnum):
@@ -127,11 +139,29 @@ class DebateTranscript:
 
 @dataclass(frozen=True, slots=True)
 class ConfidenceMode:
-    """How an agent is asked for its confidence, and how it is read back."""
+    """How an agent is asked for its confidence, and which registered signal reads it back."""
 
     name: str
     instruction: str | None
-    parse: Callable[[str], SignalValue]
+    signal: str | None
+
+    def __post_init__(self) -> None:
+        if (self.instruction is None) != (self.signal is None):
+            raise ValueError(
+                f"confidence mode {self.name!r} must state an instruction and name a signal, "
+                f"or neither"
+            )
+        if self.signal is not None and self.signal not in signal_registry:
+            known = signal_registry.names()
+            raise ValueError(
+                f"unknown signal {self.signal!r} for mode {self.name!r}; known: {known}"
+            )
+
+    def read(self, evidence: Evidence) -> SignalValue:
+        """Return the confidence this mode asked for, or a null if it asked for none."""
+        if self.signal is None:
+            return SignalValue(None, SignalNull.NOT_APPLICABLE)
+        return signal_registry.get(self.signal)().compute(evidence)
 
 
 @dataclass(frozen=True, slots=True)
