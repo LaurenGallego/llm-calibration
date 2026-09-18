@@ -1,31 +1,7 @@
-"""Reading and writing the results store.
-
-Layout:
-
-    root/
-    |- runs/       part-{run_id}.parquet
-    |- questions/  model_slug=../stage=../benchmark=../part-{run_id}-{seq:04d}.parquet
-    |- signals/    model_slug=../stage=../benchmark=../part-{run_id}-{seq:04d}.parquet
-
-Rules this module exists to enforce, all from CLAUDE.md:
-
-- **No job ever appends to another job's file.** Each run owns files named by its own
-  `run_id`, so a job array cannot collide however it is scheduled.
-- **Nothing is overwritten or edited.** A wrong result is fixed by regenerating it under
-  a new run, not by rewriting a file.
-- **A partial run is detectable.** `runs.completed_at` stays NULL until a job finishes,
-  because a walltime kill otherwise leaves a valid Parquet file holding a truncated,
-  subject-ordered prefix of the benchmark that no reader can distinguish from a smaller
-  complete run.
-
-Note the chunked file names (`-{seq}`). CLAUDE.md says "one file per job"; the rule it is
-protecting is "never concurrent-append to a shared file", which distinct per-chunk files
-satisfy. Writing in chunks means a job killed at its walltime keeps the work it already
-did, instead of restarting a benchmark it had nearly finished. Flagged in DEVLOG as a
-clarification of that rule rather than a silent departure from it.
-"""
+"""Reading and writing the results store."""
 
 import os
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -41,33 +17,32 @@ from madcal.storage.schema import (
     RUNS_SCHEMA,
     SIGNALS_SCHEMA,
     TABLES,
+    Level,
     QuestionRow,
     RunStatus,
     SignalRow,
-    Stage,
+    Variant,
     model_slug,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class RunManifest:
-    """Everything that identifies one execution: the condition plus its provenance.
-
-    `n_questions_planned` is the size of the **whole condition**, not of this run's
-    remainder. A requeued job necessarily gets a fresh `run_id`, so summing
-    `n_questions_written` across runs double-counts anything computed twice and
-    undercounts nothing usefully -- `analysis/` establishes completeness by counting
-    distinct `question_id` against this number instead, which is robust to overlap.
-    """
+    """Everything that identifies one execution: its condition and its provenance."""
 
     run_id: str
     config_hash: str
     model_id: str
-    stage: Stage
+    variant: Variant
     benchmark: str
+    protocol: str
+    n_agents: int
+    n_rounds: int
+    confidence_mode: str
+    aggregation: str
+    temperature: float
+    max_tokens: int
     prompt_protocol: str
-    n_shots: int
-    scoring_mode: str
     checkpoint_sha: str
     code_sha: str
     dtype: str
@@ -76,19 +51,20 @@ class RunManifest:
     backend_version: str
     n_questions_planned: int
     benchmark_revision: str | None = None
-    subjects: tuple[str, ...] | None = None
-    temperature: float = 0.0
-    n_samples: int = 1
     seed: int | None = None
+
+    @property
+    def rows_per_question(self) -> int:
+        """Number of question rows one complete debate produces."""
+        return self.n_agents * (self.n_rounds + 1) + 1
 
 
 class ResultStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    # -- writing ---------------------------------------------------------------
-
     def begin_run(self, manifest: RunManifest) -> None:
+        """Write the manifest that marks this run as started."""
         path = self._run_path(manifest.run_id)
         if path.exists():
             raise FileExistsError(
@@ -105,10 +81,13 @@ class ResultStore:
         signals: Sequence[SignalRow],
         seq: int,
     ) -> None:
+        """Write one chunk of complete debates, signals first so no question lacks them."""
         if seq < 0:
             raise ValueError(f"seq must be >= 0, got {seq}")
         if not questions:
             raise ValueError("write_chunk needs at least one question row")
+
+        self._check_debates_are_complete(manifest, questions)
 
         graded = {question.question_id for question in questions}
         orphans = sorted({signal.question_id for signal in signals} - graded)
@@ -120,14 +99,8 @@ class ResultStore:
 
         shared = self._shared_columns(manifest)
         question_rows = [{**shared, **asdict(question)} for question in questions]
-        signal_rows = [{**shared, **asdict(signal), "kind": str(signal.kind)} for signal in signals]
+        signal_rows = [{**shared, **asdict(signal)} for signal in signals]
 
-        # Signals first, questions second, and the order is load-bearing. `resume` keys
-        # on question rows, so a question row must never exist without its signals: a
-        # crash between the two writes would otherwise leave a question that resume
-        # skips, which then contributes to accuracy while contributing nothing to ECE.
-        # The reverse crash leaves orphan signal rows, which are harmless -- they do not
-        # join, and a later run writes its own under a different run_id.
         self._write_atomic(
             pa.Table.from_pylist(signal_rows, schema=SIGNALS_SCHEMA),
             self._chunk_path("signals", manifest, seq),
@@ -138,6 +111,7 @@ class ResultStore:
         )
 
     def finish_run(self, run_id: str, status: RunStatus, n_written: int) -> None:
+        """Close the manifest, timestamping only a clean finish."""
         path = self._run_path(run_id)
         if not path.exists():
             raise FileNotFoundError(
@@ -146,16 +120,12 @@ class ResultStore:
             )
         record = pq.read_table(path).to_pylist()[0]
         record["status"] = str(status)
-        # Only a clean finish gets a timestamp. `analysis/` reads completed_at, so a
-        # failed run must not acquire one -- it is the difference between "this file
-        # holds the whole condition" and "this file holds however far it got".
         record["completed_at"] = datetime.now(UTC) if status is RunStatus.COMPLETE else None
         record["n_questions_written"] = n_written
         self._write_atomic(pa.Table.from_pylist([record], schema=RUNS_SCHEMA), path)
 
-    # -- reading ---------------------------------------------------------------
-
     def connect(self) -> duckdb.DuckDBPyConnection:
+        """Open a DuckDB connection with one view per table."""
         connection = duckdb.connect()
         for name in TABLES:
             directory = self.root / name
@@ -169,18 +139,7 @@ class ResultStore:
         return connection
 
     def completed_questions(self, config_hash: str) -> set[str]:
-        """Questions already computed under this config, for a requeued job to skip.
-
-        Deliberately does **not** filter on run status. Chunks are written by atomic
-        rename, so a row that exists is a whole, correct result whether or not the job
-        that produced it later hit its walltime -- and requiring `status = 'complete'`
-        here would make a requeue recompute everything a killed job had finished, which
-        is the entire reason chunked writes exist.
-
-        Run completion answers a different question: is this *condition* whole? That
-        guard belongs to `analysis/`, which refuses rows from runs without a
-        `completed_at` (see `incomplete_runs`). Two guards, two purposes.
-        """
+        """Questions already computed under this config, for a requeued job to skip."""
         if not self._has_tables("questions"):
             return set()
         with self.connect() as connection:
@@ -191,6 +150,7 @@ class ResultStore:
         return {row[0] for row in rows}
 
     def incomplete_runs(self) -> list[str]:
+        """Run ids that never finished cleanly, which analysis must refuse."""
         if not self._has_tables("runs"):
             return []
         with self.connect() as connection:
@@ -200,7 +160,25 @@ class ResultStore:
             ).fetchall()
         return [row[0] for row in rows]
 
-    # -- internals -------------------------------------------------------------
+    def _check_debates_are_complete(
+        self, manifest: RunManifest, questions: Sequence[QuestionRow]
+    ) -> None:
+        agent_turns = Counter(
+            question.question_id for question in questions if question.level is Level.AGENT
+        )
+        system_answers = Counter(
+            question.question_id for question in questions if question.level is Level.SYSTEM
+        )
+        expected_turns = manifest.n_agents * (manifest.n_rounds + 1)
+        for question_id in sorted(agent_turns.keys() | system_answers.keys()):
+            turns = agent_turns[question_id]
+            systems = system_answers[question_id]
+            if turns != expected_turns or systems != 1:
+                raise ValueError(
+                    f"debate for {question_id!r} is incomplete: {turns} agent rows and "
+                    f"{systems} system rows, expected {expected_turns} and 1; a partial "
+                    f"debate must never be written because resume would treat it as done"
+                )
 
     def _has_tables(self, *names: str) -> bool:
         return all((self.root / name).exists() for name in names)
@@ -213,17 +191,18 @@ class ResultStore:
             self.root
             / table
             / f"model_slug={model_slug(manifest.model_id)}"
-            / f"stage={manifest.stage}"
+            / f"variant={manifest.variant}"
+            / f"protocol={manifest.protocol}"
             / f"benchmark={manifest.benchmark}"
             / f"part-{manifest.run_id}-{seq:04d}.parquet"
         )
 
     def _shared_columns(self, manifest: RunManifest) -> dict[str, Any]:
-        """Partition and provenance columns, derived once so both facts agree."""
         return {
             "run_id": manifest.run_id,
             "model_slug": model_slug(manifest.model_id),
-            "stage": str(manifest.stage),
+            "variant": str(manifest.variant),
+            "protocol": manifest.protocol,
             "benchmark": manifest.benchmark,
             "checkpoint_sha": manifest.checkpoint_sha,
             "code_sha": manifest.code_sha,
@@ -233,8 +212,6 @@ class ResultStore:
             "batch_size": manifest.batch_size,
             "backend": manifest.backend,
             "backend_version": manifest.backend_version,
-            # Timezone-aware: the schema declares tz="UTC", and a naive datetime is
-            # silently reinterpreted rather than rejected.
             "created_at": datetime.now(UTC),
         }
 
@@ -254,15 +231,14 @@ class ResultStore:
             "n_questions_written": n_written,
             "model_id": manifest.model_id,
             "benchmark_revision": manifest.benchmark_revision,
-            "subjects": list(manifest.subjects) if manifest.subjects else None,
             "prompt_protocol": manifest.prompt_protocol,
-            "n_shots": manifest.n_shots,
-            "scoring_mode": manifest.scoring_mode,
+            "n_agents": manifest.n_agents,
+            "n_rounds": manifest.n_rounds,
+            "confidence_mode": manifest.confidence_mode,
+            "aggregation": manifest.aggregation,
             "temperature": manifest.temperature,
-            "n_samples": manifest.n_samples,
+            "max_tokens": manifest.max_tokens,
         }
-        # A typo here would produce a NULL column rather than an error, so the key set
-        # is checked against the schema instead of trusted.
         missing = set(RUNS_SCHEMA.names) - record.keys()
         extra = record.keys() - set(RUNS_SCHEMA.names)
         if missing or extra:
@@ -271,8 +247,6 @@ class ResultStore:
 
     def _write_atomic(self, table: pa.Table, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # with_name, not with_suffix: the latter would replace ".parquet" rather than
-        # append, and a "*.parquet" glob would then pick up the half-written file.
         temporary = path.with_name(path.name + ".tmp")
         pq.write_table(table, temporary, compression="zstd")
         os.replace(temporary, path)

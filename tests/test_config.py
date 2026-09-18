@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from madcal.config import RunConfig
 
 BASE = {
-    "model": {"name": "transformers", "model_id": "mistralai/Mistral-7B-v0.1", "stage": "base"},
+    "model": {"name": "transformers", "model_id": "mistralai/Mistral-7B-v0.1", "variant": "base"},
     "output_root": "results",
 }
 SHA = "a" * 40

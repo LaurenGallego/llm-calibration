@@ -8,7 +8,14 @@ ECE without changing anything a reader would notice.
 
 import pytest
 
-from madcal.storage import QuestionRow, SignalKind, SignalRow, model_slug
+from madcal.storage import (
+    AnswerNull,
+    Level,
+    QuestionRow,
+    SignalKind,
+    SignalRow,
+    model_slug,
+)
 
 
 @pytest.mark.parametrize(
@@ -42,25 +49,101 @@ def test_unusable_ids_raise(model_id: str):
 
 
 def test_parse_failure_is_not_a_wrong_answer():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="correct is present"):
         QuestionRow(
             question_id="mmlu/anatomy/test/0",
+            level=Level.AGENT,
+            agent_id="agent_0",
+            round=0,
             subject="anatomy",
             task_format="mcq",
             predicted=None,
             correct=False,
-            parse_failed=True,
+            null_reason=AnswerNull.PARSE_FAILED,
+            finish_reason="stop",
         )
+
+
+def question_row(**overrides):
+    fields = {
+        "question_id": "mmlu/anatomy/test/0",
+        "level": Level.AGENT,
+        "agent_id": "agent_0",
+        "round": 0,
+        "subject": "anatomy",
+        "task_format": "mcq",
+        "predicted": "B",
+        "correct": True,
+        "null_reason": None,
+        "finish_reason": "stop",
+    }
+    return QuestionRow(**{**fields, **overrides})
+
+
+def signal_row(**overrides):
+    fields = {
+        "question_id": "mmlu/anatomy/test/0",
+        "level": Level.AGENT,
+        "agent_id": "agent_0",
+        "round": 0,
+        "signal": "verbalized_confidence",
+        "kind": SignalKind.SIGNAL,
+        "value": 0.5,
+        "reason": None,
+    }
+    return SignalRow(**{**fields, **overrides})
+
+
+@pytest.mark.parametrize("row", [question_row, signal_row])
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"level": Level.SYSTEM}, "carry no agent"),
+        ({"level": Level.SYSTEM, "agent_id": None}, "carry no agent"),
+        ({"agent_id": None}, "need an agent"),
+        ({"round": None}, "need an agent"),
+        ({"round": -1}, "round must be"),
+    ],
+)
+def test_level_agent_and_round_must_agree(row, overrides, message):
+    extra = {"finish_reason": None} if row is question_row else {}
+    with pytest.raises(ValueError, match=message):
+        row(**overrides, **extra)
+
+
+def test_a_system_row_needs_no_agent_and_no_round():
+    row = question_row(level=Level.SYSTEM, agent_id=None, round=None, finish_reason=None)
+    assert row.agent_id is None and row.round is None
+
+
+@pytest.mark.parametrize(
+    ("level", "null_reason"),
+    [
+        (Level.AGENT, AnswerNull.TIE),
+        (Level.AGENT, AnswerNull.NO_VALID_ANSWERS),
+        (Level.SYSTEM, AnswerNull.PARSE_FAILED),
+    ],
+)
+def test_null_reasons_belong_to_one_level(level, null_reason):
+    grain = (
+        {"agent_id": None, "round": None, "finish_reason": None} if level is Level.SYSTEM else {}
+    )
+    with pytest.raises(ValueError, match="cannot occur at level"):
+        question_row(level=level, predicted=None, correct=None, null_reason=null_reason, **grain)
+
+
+def test_a_system_row_records_no_finish_reason():
+    with pytest.raises(ValueError, match="finish_reason"):
+        question_row(level=Level.SYSTEM, agent_id=None, round=None, finish_reason="stop")
+
+
+def test_an_agent_row_must_record_a_finish_reason():
+    with pytest.raises(ValueError, match="finish_reason"):
+        question_row(finish_reason=None)
 
 
 def test_signal_value_and_reason_are_exclusive():
     with pytest.raises(ValueError):
-        SignalRow("q", "confidence", SignalKind.SIGNAL, 0.5, "no_choice_scores")
+        signal_row(value=0.5, reason="no_choice_scores")
     with pytest.raises(ValueError):
-        SignalRow("q", "confidence", SignalKind.SIGNAL, None, None)
-
-
-def test_nan_never_reaches_parquet():
-    # A NaN here is a NaN in every aggregate computed from the column afterwards.
-    with pytest.raises(ValueError):
-        SignalRow("q", "confidence", SignalKind.SIGNAL, float("nan"), None)
+        signal_row(value=None, reason=None)

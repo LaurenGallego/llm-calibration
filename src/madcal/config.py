@@ -22,7 +22,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from madcal.storage import Stage
+from madcal.storage import Variant
 
 # Fields recorded per row and verified by analysis rather than hashed into the identity
 # of the condition.
@@ -40,7 +40,7 @@ class _Strict(BaseModel):
 class StubModelConfig(_Strict):
     name: Literal["stub"] = "stub"
     model_id: Literal["stub"] = "stub"
-    stage: Stage = Stage.STUB
+    variant: Variant = Variant.STUB
     seed: int = 0
     n_choices: int = Field(default=4, ge=1)
     response_template: str = "Answer: {letter}"
@@ -49,7 +49,7 @@ class StubModelConfig(_Strict):
 class TransformersModelConfig(_Strict):
     name: Literal["transformers"] = "transformers"
     model_id: str
-    stage: Stage
+    variant: Variant
     revision: str | None = None
     dtype: str = "bfloat16"
     device: str = "auto"

@@ -1,29 +1,4 @@
-"""Explicit Arrow schemas for the results store, and the row types that fill them.
-
-Three tables, a star schema:
-
-    runs        one row per job execution        (dimension)
-    questions   one row per run x question       (the graded side)
-    signals     one row per run x question x signal   (the unlabeled side)
-
-    runs (run_id) --1:N--> questions (run_id, question_id)
-                  --1:N--> signals   (run_id, question_id, signal)
-
-Why the schemas are written out rather than inferred from the data: an inferred schema
-is how a column becomes int64 in one job's file and double in another, which surfaces
-months later as a coercion or a failed union across the dataset. Writing fails here if a
-row does not match, which is the only point at which that is cheap to fix.
-
-Two properties of this layout are load-bearing rather than stylistic:
-
-- **`signals` contains no label.** The dataset can be copied, shared or globbed by
-  accident and still cannot leak ground truth. That is the `import-linter` contract
-  expressed in the file layout.
-- **Provenance is repeated on every fact row** even though `runs` already holds it.
-  CLAUDE.md requires a row to be traceable on its own, and Parquet dictionary-encodes a
-  column with one distinct value per file down to a few bytes -- so a self-describing
-  file costs almost nothing. `analysis/` should assert the two copies agree.
-"""
+"""Arrow schemas for the results store, and the row types that fill them."""
 
 import math
 from dataclasses import dataclass
@@ -33,15 +8,16 @@ from string import ascii_letters, digits
 import pyarrow as pa
 
 
-class Stage(StrEnum):
-    """Alignment stage. An experimental claim about a checkpoint, supplied by config --
-    an adapter cannot verify which stage the weights it loaded came from."""
-
+class Variant(StrEnum):
     BASE = "base"
-    SFT = "sft"
-    DPO = "dpo"
-    RLVR = "rlvr"
+    VAE = "vae"
+    DROPOUT = "dropout"
     STUB = "stub"
+
+
+class Level(StrEnum):
+    AGENT = "agent"
+    SYSTEM = "system"
 
 
 class RunStatus(StrEnum):
@@ -53,9 +29,18 @@ class RunStatus(StrEnum):
 class SignalKind(StrEnum):
     SIGNAL = "signal"
     DIAGNOSTIC = "diagnostic"
+    AGGREGATE = "aggregate"
 
 
-# Columns every fact row repeats. Dictionary-encoded to near-nothing in Parquet.
+class AnswerNull(StrEnum):
+    PARSE_FAILED = "parse_failed"
+    TIE = "tie"
+    NO_VALID_ANSWERS = "no_valid_answers"
+
+
+AGENT_NULLS = frozenset({AnswerNull.PARSE_FAILED})
+SYSTEM_NULLS = frozenset({AnswerNull.TIE, AnswerNull.NO_VALID_ANSWERS})
+
 PROVENANCE_FIELDS = [
     pa.field("checkpoint_sha", pa.string(), nullable=False),
     pa.field("code_sha", pa.string(), nullable=False),
@@ -68,41 +53,41 @@ PROVENANCE_FIELDS = [
     pa.field("created_at", pa.timestamp("us", tz="UTC"), nullable=False),
 ]
 
-# Hive partition keys, in path order. Low cardinality, and every analysis query filters
-# on them. `subject` is deliberately absent: 57 values would multiply the directory
-# count into the thousands, and Parquet row-group statistics give pushdown anyway.
-PARTITION_KEYS = ("model_slug", "stage", "benchmark")
+GRAIN_FIELDS = [
+    pa.field("model_slug", pa.string(), nullable=False),
+    pa.field("variant", pa.string(), nullable=False),
+    pa.field("protocol", pa.string(), nullable=False),
+    pa.field("benchmark", pa.string(), nullable=False),
+    pa.field("level", pa.string(), nullable=False),
+    pa.field("agent_id", pa.string(), nullable=True),
+    pa.field("round", pa.int32(), nullable=True),
+]
 
-# What makes a stored row reusable by a requeued job. `config_hash` is in here on
-# purpose: without it, changing n_shots and requeueing leaves prior rows looking
-# complete, so the job skips them and the condition silently blends two protocols.
+PARTITION_KEYS = ("model_slug", "variant", "protocol", "benchmark")
+
 RESUME_KEY = ("config_hash", "question_id")
 
 RUNS_SCHEMA = pa.schema(
     [
         pa.field("run_id", pa.string(), nullable=False),
-        # config_hash is not repeated here: PROVENANCE_FIELDS already carries it, and a
-        # duplicate name makes the column unaddressable in SQL and unfillable from a dict.
         pa.field("status", pa.string(), nullable=False),
         pa.field("started_at", pa.timestamp("us", tz="UTC"), nullable=False),
-        # NULL until the job finishes cleanly. This is the partial-run detector: a
-        # walltime kill leaves a valid Parquet file holding a truncated, subject-ordered
-        # prefix of the benchmark, which is indistinguishable from a smaller complete
-        # run without this column.
         pa.field("completed_at", pa.timestamp("us", tz="UTC"), nullable=True),
         pa.field("n_questions_planned", pa.int64(), nullable=False),
         pa.field("n_questions_written", pa.int64(), nullable=False),
         pa.field("model_id", pa.string(), nullable=False),
         pa.field("model_slug", pa.string(), nullable=False),
-        pa.field("stage", pa.string(), nullable=False),
+        pa.field("variant", pa.string(), nullable=False),
         pa.field("benchmark", pa.string(), nullable=False),
         pa.field("benchmark_revision", pa.string(), nullable=True),
-        pa.field("subjects", pa.list_(pa.string()), nullable=True),
         pa.field("prompt_protocol", pa.string(), nullable=False),
-        pa.field("n_shots", pa.int32(), nullable=False),
-        pa.field("scoring_mode", pa.string(), nullable=False),
+        pa.field("protocol", pa.string(), nullable=False),
+        pa.field("n_agents", pa.int32(), nullable=False),
+        pa.field("n_rounds", pa.int32(), nullable=False),
+        pa.field("confidence_mode", pa.string(), nullable=False),
+        pa.field("aggregation", pa.string(), nullable=False),
         pa.field("temperature", pa.float64(), nullable=False),
-        pa.field("n_samples", pa.int32(), nullable=False),
+        pa.field("max_tokens", pa.int32(), nullable=False),
         *PROVENANCE_FIELDS,
     ]
 )
@@ -111,17 +96,13 @@ QUESTIONS_SCHEMA = pa.schema(
     [
         pa.field("run_id", pa.string(), nullable=False),
         pa.field("question_id", pa.string(), nullable=False),
-        pa.field("model_slug", pa.string(), nullable=False),
-        pa.field("stage", pa.string(), nullable=False),
-        pa.field("benchmark", pa.string(), nullable=False),
+        *GRAIN_FIELDS,
         pa.field("subject", pa.string(), nullable=True),
         pa.field("task_format", pa.string(), nullable=False),
         pa.field("predicted", pa.string(), nullable=True),
-        # NULL when parse_failed, never False. A parse failure is a different event
-        # from a wrong answer, and `analysis/` has to state which policy it applies
-        # rather than inheriting one from the storage layer.
         pa.field("correct", pa.bool_(), nullable=True),
-        pa.field("parse_failed", pa.bool_(), nullable=False),
+        pa.field("null_reason", pa.string(), nullable=True),
+        pa.field("finish_reason", pa.string(), nullable=True),
         *PROVENANCE_FIELDS,
     ]
 )
@@ -130,13 +111,11 @@ SIGNALS_SCHEMA = pa.schema(
     [
         pa.field("run_id", pa.string(), nullable=False),
         pa.field("question_id", pa.string(), nullable=False),
+        *GRAIN_FIELDS,
         pa.field("signal", pa.string(), nullable=False),
         pa.field("kind", pa.string(), nullable=False),
         pa.field("value", pa.float64(), nullable=True),
         pa.field("reason", pa.string(), nullable=True),
-        pa.field("model_slug", pa.string(), nullable=False),
-        pa.field("stage", pa.string(), nullable=False),
-        pa.field("benchmark", pa.string(), nullable=False),
         *PROVENANCE_FIELDS,
     ]
 )
@@ -148,38 +127,60 @@ TABLES = {
 }
 
 
+def check_grain(level: Level, agent_id: str | None, round_: int | None) -> None:
+    """Raise unless agent id and round are present exactly when the level is agent."""
+    if level is Level.SYSTEM and (agent_id is not None or round_ is not None):
+        raise ValueError(f"system rows carry no agent or round, got {agent_id!r} and {round_!r}")
+    if level is Level.AGENT and (agent_id is None or round_ is None):
+        raise ValueError(f"agent rows need an agent and a round, got {agent_id!r} and {round_!r}")
+    if round_ is not None and round_ < 0:
+        raise ValueError(f"round must be >= 0, got {round_}")
+
+
 @dataclass(frozen=True, slots=True)
 class QuestionRow:
+    """One graded answer: an agent's at one round, or the system's for the question."""
+
     question_id: str
+    level: Level
+    agent_id: str | None
+    round: int | None
     subject: str | None
     task_format: str
     predicted: str | None
     correct: bool | None
-    parse_failed: bool
+    null_reason: AnswerNull | None
+    finish_reason: str | None
 
     def __post_init__(self) -> None:
-        # TODO: parse_failed and correct must agree -- parse_failed implies correct is
-        # None, and a present `predicted` implies parse_failed is False. Inconsistency
-        # here is a wrong accuracy, not a crash.
-        if self.parse_failed and self.correct is not None:
-            raise ValueError("parse_failed implies correct is None")
-
-        if self.predicted is not None and self.parse_failed:
-            raise ValueError("predicted implies parse_failed is False")
+        check_grain(self.level, self.agent_id, self.round)
+        if (self.predicted is None) != (self.null_reason is not None):
+            raise ValueError("predicted is present exactly when null_reason is absent")
+        if (self.correct is None) != (self.predicted is None):
+            raise ValueError("correct is present exactly when predicted is")
+        if self.null_reason is not None:
+            allowed = AGENT_NULLS if self.level is Level.AGENT else SYSTEM_NULLS
+            if self.null_reason not in allowed:
+                raise ValueError(f"{self.null_reason} cannot occur at level {self.level}")
+        if (self.finish_reason is None) != (self.level is Level.SYSTEM):
+            raise ValueError("finish_reason is recorded for agent rows only")
 
 
 @dataclass(frozen=True, slots=True)
 class SignalRow:
+    """One signal value for one agent turn, or for the system answer."""
+
     question_id: str
+    level: Level
+    agent_id: str | None
+    round: int | None
     signal: str
     kind: SignalKind
     value: float | None
     reason: str | None
 
     def __post_init__(self) -> None:
-        # TODO: exactly one of value/reason, mirroring SignalValue. Reject non-finite
-        # values here too -- a NaN that reaches Parquet is a NaN in every aggregate
-        # computed from it afterwards.
+        check_grain(self.level, self.agent_id, self.round)
         if self.value is None and self.reason is None:
             raise ValueError("Exactly one of value or reason must be specified")
         if self.value is not None and self.reason is not None:
@@ -188,24 +189,11 @@ class SignalRow:
             raise ValueError("value must be a finite number")
 
 
-# What a Hive partition value can hold without being reinterpreted: no "/" to invent a
-# directory level, no "=" to look like another partition key, no whitespace or shell
-# metacharacters.
 _SAFE_CHARACTERS = frozenset(ascii_letters + digits + "-._")
 
 
 def model_slug(model_id: str) -> str:
-    """`mistralai/Mistral-7B-v0.1` -> `mistralai__Mistral-7B-v0.1`.
-
-    The organisation separator becomes a double underscore and anything else unsafe
-    becomes a single one, so the slug still reads as the model it came from. Stable by
-    construction: one `model_id` always maps to one slug.
-
-    Not provably injective -- an id already containing `__` could in principle collide
-    with one containing `/`. The exact `model_id` is kept as a column for that reason,
-    and `analysis/` should assert each slug maps to exactly one `model_id` rather than
-    trusting this function to make a collision impossible.
-    """
+    """Return a Hive-safe partition value for a model id, one slug per id."""
     cleaned = model_id.strip()
     if not cleaned:
         raise ValueError("model_id cannot be empty")
@@ -215,8 +203,6 @@ def model_slug(model_id: str) -> str:
         for character in cleaned.replace("/", "__")
     )
 
-    # A slug of pure punctuation names nothing, and a ".."-style value is a path
-    # traversal rather than a partition.
     if not any(character.isalnum() for character in slug):
         raise ValueError(f"model_id {model_id!r} leaves no readable slug: {slug!r}")
     if slug.startswith("."):
