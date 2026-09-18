@@ -4,7 +4,7 @@ import pytest
 
 from madcal.config import RunConfig
 from madcal.metrics import brier_score, expected_calibration_error
-from madcal.orchestration import SYSTEM_CONFIDENCE, build_benchmark, run
+from madcal.orchestration import STATED_CONFIDENCE, SYSTEM_CONFIDENCE, build_benchmark, run
 from madcal.storage import ResultStore, RunStatus
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mmlu_sample.jsonl"
@@ -117,3 +117,45 @@ def test_a_rerun_skips_every_question_it_already_stored(stored, tmp_path):
     again = run(make_config(tmp_path), store)
     assert again.n_written == 0
     assert again.n_skipped == len(questions)
+
+
+def test_every_registered_signal_is_stored_at_the_agent_grain(stored):
+    store, questions, config, _ = stored
+    with store.connect() as connection:
+        rows = connection.execute(
+            "SELECT signal, kind, count(*), count(value) FROM signals "
+            "WHERE level = 'agent' GROUP BY signal, kind ORDER BY signal"
+        ).fetchall()
+
+    turns = len(questions) * config.n_agents * (config.n_rounds + 1)
+    assert rows == [
+        ("length_normalised_likelihood", "signal", turns, turns),
+        (STATED_CONFIDENCE, "signal", turns, turns),
+    ]
+
+
+def test_the_stored_signals_are_distinct_measurements_not_one_column_twice(stored):
+    store, _, _, _ = stored
+    with store.connect() as connection:
+        pairs = connection.execute(
+            "SELECT a.value, b.value FROM signals a JOIN signals b "
+            "ON a.run_id = b.run_id AND a.question_id = b.question_id "
+            "AND a.agent_id IS NOT DISTINCT FROM b.agent_id "
+            "AND a.round IS NOT DISTINCT FROM b.round "
+            "WHERE a.signal = ? AND b.signal = 'length_normalised_likelihood'",
+            [STATED_CONFIDENCE],
+        ).fetchall()
+
+    assert pairs
+    assert any(stated != likelihood for stated, likelihood in pairs)
+
+
+def test_no_signal_row_names_the_confidence_mode_signal_as_well_as_its_column(stored):
+    store, _, config, _ = stored
+    assert config.confidence_mode == "verbalized"
+    with store.connect() as connection:
+        duplicated = connection.execute(
+            "SELECT count(*) FROM signals WHERE signal = 'verbalized_confidence'"
+        ).fetchone()
+    assert duplicated is not None
+    assert duplicated[0] == 0

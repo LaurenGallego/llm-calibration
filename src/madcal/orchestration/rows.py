@@ -1,7 +1,17 @@
 """Flattening a graded debate transcript into storage rows."""
 
+from collections.abc import Sequence
+
 from madcal.benchmarks import Benchmark, Question
-from madcal.debate import AgentTurn, DebateTranscript, SystemAnswer, SystemNull
+from madcal.debate import (
+    AgentTurn,
+    DebateTranscript,
+    SystemAnswer,
+    SystemNull,
+    confidence_mode_registry,
+)
+from madcal.models import ModelAdapter
+from madcal.signals import Signal, SignalValue, applicable, signal_registry
 from madcal.storage import AnswerNull, Level, QuestionRow, SignalKind, SignalRow
 
 STATED_CONFIDENCE = "stated_confidence"
@@ -13,8 +23,21 @@ SYSTEM_NULLS = {
 }
 
 
+def debate_signals(adapter: ModelAdapter, confidence_mode: str) -> tuple[type[Signal], ...]:
+    """Return the registered signals a generative debate on `adapter` computes per agent turn."""
+    mode = confidence_mode_registry.get(confidence_mode)
+    return tuple(
+        signal
+        for name, signal in signal_registry
+        if signal.requires.needs_generations and name != mode.signal and applicable(signal, adapter)
+    )
+
+
 def transcript_rows(
-    transcript: DebateTranscript, question: Question, benchmark: Benchmark
+    transcript: DebateTranscript,
+    question: Question,
+    benchmark: Benchmark,
+    signals: Sequence[type[Signal]],
 ) -> tuple[list[QuestionRow], list[SignalRow]]:
     """Grade one transcript and return its question rows and signal rows."""
     if transcript.question_id != question.id:
@@ -25,9 +48,12 @@ def transcript_rows(
     questions = [_turn_row(turn, question, benchmark, subject) for turn in transcript.turns]
     questions.append(_system_row(transcript.system, question, benchmark, subject))
 
-    signals = [_turn_signal(turn, question.id) for turn in transcript.turns]
-    signals.append(_system_signal(transcript.system, question.id))
-    return questions, signals
+    signal_rows: list[SignalRow] = []
+    for turn in transcript.turns:
+        signal_rows.append(_stated_confidence(turn, question.id))
+        signal_rows.extend(_computed_signals(turn, question.id, signals))
+    signal_rows.append(_system_signal(transcript.system, question.id))
+    return questions, signal_rows
 
 
 def _turn_row(
@@ -64,16 +90,29 @@ def _system_row(
     )
 
 
-def _turn_signal(turn: AgentTurn, question_id: str) -> SignalRow:
+def _stated_confidence(turn: AgentTurn, question_id: str) -> SignalRow:
+    return _signal_row(turn, question_id, STATED_CONFIDENCE, turn.confidence)
+
+
+def _computed_signals(
+    turn: AgentTurn, question_id: str, signals: Sequence[type[Signal]]
+) -> list[SignalRow]:
+    return [
+        _signal_row(turn, question_id, signal.name, signal().compute(turn.evidence))
+        for signal in signals
+    ]
+
+
+def _signal_row(turn: AgentTurn, question_id: str, name: str, value: SignalValue) -> SignalRow:
     return SignalRow(
         question_id=question_id,
         level=Level.AGENT,
         agent_id=turn.agent_id,
         round=turn.round,
-        signal=STATED_CONFIDENCE,
+        signal=name,
         kind=SignalKind.SIGNAL,
-        value=turn.confidence.value,
-        reason=None if turn.confidence.reason is None else str(turn.confidence.reason),
+        value=value.value,
+        reason=None if value.reason is None else str(value.reason),
     )
 
 

@@ -6,6 +6,7 @@ from madcal.orchestration.provenance import code_sha, new_run_id
 from madcal.orchestration.rows import (
     STATED_CONFIDENCE,
     SYSTEM_CONFIDENCE,
+    debate_signals,
     transcript_rows,
 )
 from madcal.orchestration.runner import RunOutcome, run
@@ -19,6 +20,7 @@ __all__ = [
     "build_renderer",
     "code_sha",
     "debate_question",
+    "debate_signals",
     "new_run_id",
     "run",
     "transcript_rows",
