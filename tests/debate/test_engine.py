@@ -92,7 +92,8 @@ class ScriptedAdapter(StubAdapter):
         self.calls.append((list(prompts), n))
 
         def make(text: str) -> Generation:
-            return Generation(text=text, token_logprobs=None, tokens=None, finish_reason="stop")
+            reason = "length" if text.endswith("...") else "stop"
+            return Generation(text=text, token_logprobs=None, tokens=None, finish_reason=reason)
 
         if n > 1:
             return [[make(text) for text in texts]]
@@ -214,3 +215,11 @@ def test_each_round_samples_with_its_own_seed():
 def test_round_seed_is_stable_and_absent_without_a_debate_seed():
     assert round_seed(0, 1) == 4011020074
     assert round_seed(None, 1) is None
+
+
+def test_truncated_generation_is_recorded_on_the_turn():
+    script = [*SCRIPT[:2], ["Answer: C r2a0", "Let me think about this at length...", "Answer: B"]]
+    transcript, _ = scripted_vanilla(script)
+    final = transcript.round_turns(2)
+    assert [turn.finish_reason for turn in final] == ["stop", "length", "stop"]
+    assert final[1].answer is None

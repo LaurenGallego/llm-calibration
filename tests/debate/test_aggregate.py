@@ -10,7 +10,7 @@ def turn(answer: str | None, confidence: float | None = None) -> AgentTurn:
         if confidence is not None
         else SignalValue(None, SignalNull.PARSE_FAILED)
     )
-    return AgentTurn("agent_0", 0, "text", answer, value)
+    return AgentTurn("agent_0", 0, "text", answer, value, "stop")
 
 
 def test_majority_reports_the_share_of_all_agents_including_unparsed():

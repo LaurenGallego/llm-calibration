@@ -16,7 +16,7 @@ NO_CONFIDENCE = SignalValue(None, SignalNull.NOT_APPLICABLE)
 
 
 def turn(agent: int, round_: int) -> AgentTurn:
-    return AgentTurn(agent_id(agent), round_, "Answer: A", "A", NO_CONFIDENCE)
+    return AgentTurn(agent_id(agent), round_, "Answer: A", "A", NO_CONFIDENCE, "stop")
 
 
 def config(**overrides) -> DebateConfig:
@@ -57,12 +57,17 @@ def test_truncated_duplicated_or_misordered_transcript_is_refused(turns):
 
 def test_turn_confidence_outside_unit_interval_is_refused():
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
-        AgentTurn("agent_0", 0, "text", "A", SignalValue(1.5))
+        AgentTurn("agent_0", 0, "text", "A", SignalValue(1.5), "stop")
 
 
 def test_negative_round_is_refused():
     with pytest.raises(ValueError, match="round"):
-        AgentTurn("agent_0", -1, "text", "A", NO_CONFIDENCE)
+        AgentTurn("agent_0", -1, "text", "A", NO_CONFIDENCE, "stop")
+
+
+def test_unknown_finish_reason_is_refused():
+    with pytest.raises(ValueError, match="finish_reason"):
+        AgentTurn("agent_0", 0, "text", "A", NO_CONFIDENCE, "truncated")
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from madcal.models.base import FINISHING_REASONS
 from madcal.registry import Registry
 from madcal.signals import SignalValue
 
@@ -58,10 +59,13 @@ class AgentTurn:
     text: str
     answer: str | None
     confidence: SignalValue
+    finish_reason: str
 
     def __post_init__(self) -> None:
         if self.round < 0:
             raise ValueError(f"round must be >= 0, got {self.round}")
+        if self.finish_reason not in FINISHING_REASONS:
+            raise ValueError(f"finish_reason {self.finish_reason!r} not in {FINISHING_REASONS}")
         value = self.confidence.value
         if value is not None and not 0.0 <= value <= 1.0:
             raise ValueError(f"confidence must be in [0, 1], got {value}")

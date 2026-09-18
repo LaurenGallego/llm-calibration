@@ -165,4 +165,5 @@ def _turn(
         text=generation.text,
         answer=extract_answer(generation.text, question.n_choices),
         confidence=mode.parse(generation.text),
+        finish_reason=generation.finish_reason,
     )
