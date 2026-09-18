@@ -56,6 +56,7 @@ def test_registry_exposes_every_metric():
         "ece",
         "ece_debiased",
         "ece_equal_mass",
+        "smooth_ece",
     }
 
 

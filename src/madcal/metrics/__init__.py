@@ -27,6 +27,11 @@ from madcal.metrics.ece import (
     statistics_from_edges,
     weighted_gap,
 )
+from madcal.metrics.smooth import (
+    reflected_gaussian_smoothing,
+    smooth_ece,
+    smooth_ece_at,
+)
 
 __all__ = [
     "CalibrationMetric",
@@ -43,7 +48,10 @@ __all__ = [
     "metric_registry",
     "plugin_squared_calibration_error",
     "quantile_edges",
+    "reflected_gaussian_smoothing",
     "register_metric",
+    "smooth_ece",
+    "smooth_ece_at",
     "statistics_from_edges",
     "validate_inputs",
     "weighted_gap",
