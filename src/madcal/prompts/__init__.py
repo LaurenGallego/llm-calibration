@@ -13,7 +13,7 @@ from madcal.prompts.base import (
     question_with_choices,
     register_prompt,
 )
-from madcal.prompts.chat import ChatTemplate
+from madcal.prompts.chat import ChatTemplate, PlainChat, RendererFactory, renderer_registry
 from madcal.prompts.fewshot import (
     ANSWER_CUE,
     BLOCK_SEPARATOR,
@@ -26,9 +26,12 @@ __all__ = [
     "CONTINUATION_PREFIX",
     "ChatTemplate",
     "FewShotCompletion",
+    "PlainChat",
     "PromptProtocol",
     "RenderedPrompt",
+    "RendererFactory",
     "prompt_registry",
     "question_with_choices",
     "register_prompt",
+    "renderer_registry",
 ]

@@ -1,9 +1,12 @@
 """Chat-template rendering of debate messages."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
-from madcal.debate import Message, Role
+from madcal.debate import Message, Renderer, Role
+from madcal.registry import Registry
+
+type RendererFactory = Callable[[str, str | None], Renderer]
 
 
 class ChatTokenizer(Protocol):
@@ -59,3 +62,28 @@ class ChatTemplate:
                 "the rendered chat already starts with BOS and the tokenizer adds another; "
                 "the model would see a duplicated BOS token"
             )
+
+
+class PlainChat:
+    """Render messages as labelled turns, for adapters with no chat template."""
+
+    def __call__(self, messages: Sequence[Message]) -> str:
+        if not messages:
+            raise ValueError("cannot render an empty conversation")
+        if messages[-1].role is not Role.USER:
+            raise ValueError("the last message must be from the user so the model has a turn")
+        turns = "\n\n".join(f"{message.role}: {message.content}" for message in messages)
+        return f"{turns}\n\nassistant:"
+
+
+def _chat_template(model_id: str, revision: str | None) -> Renderer:
+    return ChatTemplate.from_pretrained(model_id, revision)
+
+
+def _plain_chat(model_id: str, revision: str | None) -> Renderer:
+    return PlainChat()
+
+
+renderer_registry: Registry[RendererFactory] = Registry("renderer")
+renderer_registry.register("chat_template")(_chat_template)
+renderer_registry.register("plain_chat")(_plain_chat)
