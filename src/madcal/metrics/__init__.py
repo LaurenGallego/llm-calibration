@@ -11,6 +11,7 @@ from madcal.metrics.base import (
     validate_inputs,
 )
 from madcal.metrics.brier import brier_score
+from madcal.metrics.discrimination import auroc, average_ranks
 from madcal.metrics.ece import (
     bin_statistics,
     confidence_accuracy_gap,
@@ -24,6 +25,8 @@ from madcal.metrics.ece import (
 
 __all__ = [
     "CalibrationMetric",
+    "auroc",
+    "average_ranks",
     "bin_statistics",
     "brier_score",
     "confidence_accuracy_gap",
