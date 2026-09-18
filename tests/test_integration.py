@@ -1,20 +1,11 @@
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
-from madcal.benchmarks import MMLU
-from madcal.debate import Message, preset, run_debate
+from madcal.config import RunConfig
 from madcal.metrics import brier_score, expected_calibration_error
-from madcal.models import StubAdapter
-from madcal.orchestration import (
-    SYSTEM_CONFIDENCE,
-    code_sha,
-    debate_question,
-    new_run_id,
-    transcript_rows,
-)
-from madcal.storage import ResultStore, RunManifest, RunStatus, Variant
+from madcal.orchestration import SYSTEM_CONFIDENCE, build_benchmark, run
+from madcal.storage import ResultStore, RunStatus
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mmlu_sample.jsonl"
 TEMPLATE = "Answer: {letter}\nConfidence: {confidence}%"
@@ -34,72 +25,33 @@ SYSTEM_ROWS = """
 """
 
 
-def render(messages: Sequence[Message]) -> str:
-    return "\n".join(f"[{message.role}] {message.content}" for message in messages)
-
-
-def make_manifest(run_id: str, config_hash: str, n_planned: int, config) -> RunManifest:
-    return RunManifest(
-        run_id=run_id,
-        config_hash=config_hash,
-        model_id="stub",
-        variant=Variant.STUB,
-        benchmark="mmlu",
-        protocol="best_of_n",
-        n_agents=config.n_agents,
-        n_rounds=config.n_rounds,
-        confidence_mode=config.confidence_mode,
-        aggregation=config.aggregation,
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
-        prompt_protocol="test_renderer",
-        checkpoint_sha="stub",
-        code_sha=code_sha(),
-        dtype="float32",
-        batch_size=8,
-        backend="stub",
-        backend_version="0.0.1",
-        n_questions_planned=n_planned,
-        seed=0,
+def make_config(tmp_path: Path) -> RunConfig:
+    return RunConfig.model_validate(
+        {
+            "model": {"name": "stub", "response_template": TEMPLATE},
+            "benchmark": {"name": "mmlu", "source": str(FIXTURE)},
+            "prompt": {"name": "plain_chat"},
+            "debate": {"protocol": "best_of_n", "temperature": 1.0, "n_agents": N_AGENTS},
+            "chunk_size": CHUNK,
+            "output_root": str(tmp_path / "results"),
+        }
     )
 
 
 @pytest.fixture
 def stored(tmp_path: Path):
-    benchmark = MMLU(source=FIXTURE)
+    config = make_config(tmp_path)
+    store = ResultStore(config.output_root)
+    benchmark = build_benchmark(config.benchmark)
     questions = list(benchmark.load())
-    config = preset("best_of_n", n_agents=N_AGENTS, temperature=1.0)
-    adapter = StubAdapter(response_template=TEMPLATE)
-    store = ResultStore(tmp_path / "results")
-    run_id = new_run_id()
-    manifest = make_manifest(run_id, "cfg-integration", len(questions), config)
-
-    store.begin_run(manifest)
-    written = 0
-    for seq, start in enumerate(range(0, len(questions), CHUNK)):
-        batch = questions[start : start + CHUNK]
-        transcripts = run_debate(
-            [debate_question(question, benchmark) for question in batch],
-            config,
-            adapter,
-            render,
-            benchmark.extract_answer,
-            seed=0,
-        )
-        question_rows = []
-        signal_rows = []
-        for transcript, question in zip(transcripts, batch, strict=True):
-            rows, signals = transcript_rows(transcript, question, benchmark)
-            question_rows.extend(rows)
-            signal_rows.extend(signals)
-        store.write_chunk(manifest, question_rows, signal_rows, seq=seq)
-        written += len(batch)
-    store.finish_run(run_id, RunStatus.COMPLETE, n_written=written)
-    return store, questions, config
+    outcome = run(config, store)
+    assert outcome.status is RunStatus.COMPLETE
+    assert outcome.n_written == len(questions)
+    return store, questions, config.debate.resolve(), outcome
 
 
 def test_every_question_is_stored_once_with_all_its_turns(stored):
-    store, questions, config = stored
+    store, questions, config, _ = stored
     with store.connect() as connection:
         counts = connection.execute(
             "SELECT level, count(*) FROM questions GROUP BY level ORDER BY level"
@@ -116,7 +68,7 @@ def test_every_question_is_stored_once_with_all_its_turns(stored):
 
 
 def test_stored_grades_match_the_benchmark(stored):
-    store, questions, _ = stored
+    store, questions, _, _ = stored
     gold = {question.id: question.answer for question in questions}
     with store.connect() as connection:
         rows = connection.execute(
@@ -129,7 +81,7 @@ def test_stored_grades_match_the_benchmark(stored):
 
 
 def test_metrics_can_be_computed_from_the_stored_rows(stored):
-    store, questions, _ = stored
+    store, questions, _, _ = stored
     with store.connect() as connection:
         rows = connection.execute(SYSTEM_ROWS, [SYSTEM_CONFIDENCE]).fetchall()
 
@@ -143,16 +95,16 @@ def test_metrics_can_be_computed_from_the_stored_rows(stored):
 
 
 def test_the_run_is_complete_and_contained_to_the_stub_partition(stored):
-    store, questions, _ = stored
+    store, questions, _, outcome = stored
     assert store.incomplete_runs() == []
-    assert store.completed_questions("cfg-integration") == {q.id for q in questions}
+    assert store.completed_questions(outcome.config_hash) == {q.id for q in questions}
     written = list((store.root / "questions").rglob("*.parquet"))
     assert len(written) == (len(questions) + CHUNK - 1) // CHUNK
     assert all("model_slug=stub" in str(path) and "variant=stub" in str(path) for path in written)
 
 
 def test_no_stored_signal_row_carries_a_label(stored):
-    store, _, _ = stored
+    store, _, _, _ = stored
     with store.connect() as connection:
         columns = {row[0] for row in connection.execute("DESCRIBE signals").fetchall()}
     assert "correct" not in columns
@@ -160,7 +112,8 @@ def test_no_stored_signal_row_carries_a_label(stored):
     assert "answer" not in columns
 
 
-def test_a_rerun_skips_every_question_it_already_stored(stored):
-    store, questions, _ = stored
-    already = store.completed_questions("cfg-integration")
-    assert [question for question in questions if question.id not in already] == []
+def test_a_rerun_skips_every_question_it_already_stored(stored, tmp_path):
+    store, questions, _, _ = stored
+    again = run(make_config(tmp_path), store)
+    assert again.n_written == 0
+    assert again.n_skipped == len(questions)
