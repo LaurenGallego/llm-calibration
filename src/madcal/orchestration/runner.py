@@ -10,7 +10,8 @@ from madcal.models import ModelAdapter
 from madcal.orchestration.build import build_adapter, build_benchmark, build_renderer
 from madcal.orchestration.debate_inputs import debate_question
 from madcal.orchestration.provenance import code_sha, new_run_id
-from madcal.orchestration.rows import transcript_rows
+from madcal.orchestration.rows import debate_signals, transcript_rows
+from madcal.signals import Signal
 from madcal.storage import QuestionRow, ResultStore, RunManifest, RunStatus, SignalRow
 
 
@@ -38,6 +39,8 @@ def run(config: RunConfig, store: ResultStore | None = None) -> RunOutcome:
     renderer = build_renderer(config.prompt, adapter)
     debate_config = config.debate.resolve()
 
+    signals = debate_signals(adapter, debate_config.confidence_mode)
+
     questions = list(benchmark.load())
     already = store.completed_questions(config_hash)
     pending = [question for question in questions if question.id not in already]
@@ -51,7 +54,7 @@ def run(config: RunConfig, store: ResultStore | None = None) -> RunOutcome:
         for seq, start in enumerate(range(0, len(pending), config.chunk_size)):
             batch = pending[start : start + config.chunk_size]
             questions_rows, signal_rows = _process_chunk(
-                batch, config, debate_config, adapter, benchmark, renderer
+                batch, config, debate_config, adapter, benchmark, renderer, signals
             )
             store.write_chunk(manifest, questions_rows, signal_rows, seq=seq)
             written += len(batch)
@@ -76,6 +79,7 @@ def _process_chunk(
     adapter: ModelAdapter,
     benchmark: Benchmark,
     renderer: Renderer,
+    signals: Sequence[type[Signal]],
 ) -> tuple[list[QuestionRow], list[SignalRow]]:
     transcripts = run_debate(
         [debate_question(question, benchmark) for question in batch],
@@ -88,9 +92,9 @@ def _process_chunk(
     question_rows: list[QuestionRow] = []
     signal_rows: list[SignalRow] = []
     for transcript, question in zip(transcripts, batch, strict=True):
-        rows, signals = transcript_rows(transcript, question, benchmark)
+        rows, values = transcript_rows(transcript, question, benchmark, signals)
         question_rows.extend(rows)
-        signal_rows.extend(signals)
+        signal_rows.extend(values)
     return question_rows, signal_rows
 
 

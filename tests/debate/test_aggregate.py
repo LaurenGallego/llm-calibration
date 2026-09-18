@@ -1,6 +1,7 @@
 import pytest
 
 from madcal.debate import AgentTurn, SystemAnswer, SystemNull, argmax_confidence, majority_vote
+from madcal.models import Generation
 from madcal.signals import SignalNull, SignalValue
 
 
@@ -10,7 +11,8 @@ def turn(answer: str | None, confidence: float | None = None) -> AgentTurn:
         if confidence is not None
         else SignalValue(None, SignalNull.PARSE_FAILED)
     )
-    return AgentTurn("agent_0", 0, "text", answer, value, "stop")
+    generation = Generation(text="text", token_logprobs=None, tokens=None, finish_reason="stop")
+    return AgentTurn("agent_0", 0, generation, answer, value)
 
 
 def test_majority_reports_the_share_of_all_agents_including_unparsed():

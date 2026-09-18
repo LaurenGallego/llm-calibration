@@ -31,12 +31,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from madcal.models import ChoiceScores, ModelAdapter
+from madcal.models import ChoiceScores, Generation, ModelAdapter
 from madcal.registry import Registry
 
 
 class SignalNull(StrEnum):
     NO_CHOICE_SCORES = "no_choice_scores"
+    NO_GENERATIONS = "no_generations"
+    NO_LOGPROBS = "no_logprobs"
     NOT_APPLICABLE = "not_applicable"
     PARSE_FAILED = "parse_failed"
 
@@ -59,18 +61,32 @@ class SignalValue:
 
 @dataclass(frozen=True, slots=True)
 class Requirements:
-    # What a model must be able to do for this signal to mean anything. One field for
-    # now: needs_resampling and needs_instruction_following have nothing to check
-    # against until alignment stage is a recorded field (DEVLOG open item 10).
     needs_choice_scores: bool = False
+    needs_generations: bool = False
+    needs_logprobs: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class Evidence:
-    # Everything a signal is allowed to see. Only types from `models/` appear here, and
-    # that is the point -- see the label contract in the module docstring. `generations`
-    # arrives with signals 3 and 4, not before.
+    """Everything a signal is allowed to see: model output, and no label."""
+
     scores: ChoiceScores | None = None
+    generations: tuple[Generation, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.generations is not None and not self.generations:
+            raise ValueError("Evidence.generations must be None or non-empty")
+
+
+def sole_generation(evidence: Evidence) -> Generation:
+    """Return the one generation in `evidence`, refusing a set that holds several."""
+    if evidence.generations is None:
+        raise ValueError("evidence carries no generations")
+    if len(evidence.generations) != 1:
+        raise ValueError(
+            f"signal is defined on a single generation, got {len(evidence.generations)}"
+        )
+    return evidence.generations[0]
 
 
 class Signal(Protocol):
@@ -88,4 +104,8 @@ def register_signal(name: str):
 
 
 def applicable(signal: type[Signal], adapter: ModelAdapter) -> bool:
-    return not (signal.requires.needs_choice_scores and not adapter.supports_scoring)
+    """Return whether `adapter` can produce the evidence `signal` is defined on."""
+    requires = signal.requires
+    if requires.needs_choice_scores and not adapter.supports_scoring:
+        return False
+    return not (requires.needs_logprobs and not adapter.supports_logprobs)

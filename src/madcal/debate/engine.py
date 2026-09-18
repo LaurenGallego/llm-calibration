@@ -18,6 +18,7 @@ from madcal.debate.base import (
     confidence_mode_registry,
 )
 from madcal.models import Generation, ModelAdapter
+from madcal.signals import Evidence
 
 PEER_HEADER = "These are the responses to the question from other agents:"
 PEER_TEMPLATE = "One agent response: ```{text}```"
@@ -162,8 +163,7 @@ def _turn(
     return AgentTurn(
         agent_id=agent,
         round=round_,
-        text=generation.text,
+        generation=generation,
         answer=extract_answer(generation.text, question.n_choices),
-        confidence=mode.parse(generation.text),
-        finish_reason=generation.finish_reason,
+        confidence=mode.read(Evidence(generations=(generation,))),
     )

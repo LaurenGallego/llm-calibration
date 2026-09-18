@@ -42,6 +42,12 @@ class Generation:
                 f"tokens length {len(self.tokens)}"
             )
 
+        if self.token_logprobs is not None:
+            if any(not math.isfinite(logprob) for logprob in self.token_logprobs):
+                raise ValueError(f"token_logprobs must all be finite, got {self.token_logprobs}")
+            if any(logprob > PROBABILITY_TOLERANCE for logprob in self.token_logprobs):
+                raise ValueError("token_logprobs must be <= 0; found a positive value")
+
 
 @dataclass(frozen=True, slots=True)
 class ChoiceScores:

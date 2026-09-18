@@ -46,7 +46,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def adapter() -> TransformersAdapter:
     # float32 so a mismatch against the reference means a logic error, not bf16 noise.
-    return TransformersAdapter(model_id=TINY_MODEL, dtype="float32", batch_size=4)
+    return TransformersAdapter(model_id=TINY_MODEL, dtype="float32", device="cpu", batch_size=4)
 
 
 @pytest.fixture(scope="module")
