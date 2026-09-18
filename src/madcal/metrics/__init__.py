@@ -14,7 +14,12 @@ from madcal.metrics.brier import brier_score
 from madcal.metrics.ece import (
     bin_statistics,
     confidence_accuracy_gap,
+    ece_equal_mass,
+    equal_mass_bin_statistics,
     expected_calibration_error,
+    quantile_edges,
+    statistics_from_edges,
+    weighted_gap,
 )
 
 __all__ = [
@@ -22,8 +27,13 @@ __all__ = [
     "bin_statistics",
     "brier_score",
     "confidence_accuracy_gap",
+    "ece_equal_mass",
+    "equal_mass_bin_statistics",
     "expected_calibration_error",
     "metric_registry",
+    "quantile_edges",
     "register_metric",
+    "statistics_from_edges",
     "validate_inputs",
+    "weighted_gap",
 ]

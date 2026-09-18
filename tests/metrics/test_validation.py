@@ -49,11 +49,16 @@ def test_boolean_and_integer_labels_agree():
 
 
 def test_registry_exposes_every_metric():
-    assert set(metric_registry.names()) == {"brier", "confidence_accuracy_gap", "ece"}
+    assert set(metric_registry.names()) == {
+        "brier",
+        "confidence_accuracy_gap",
+        "ece",
+        "ece_equal_mass",
+    }
 
 
 def test_registry_lookup_of_unknown_metric_lists_what_exists():
-    with pytest.raises(KeyError, match="registered: brier"):
+    with pytest.raises(KeyError, match="registered: brier, confidence_accuracy_gap"):
         metric_registry.get("smoothece")
 
 

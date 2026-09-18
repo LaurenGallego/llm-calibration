@@ -11,7 +11,12 @@ below exists so the file is not mistaken for dead code.
 """
 
 from madcal.benchmarks import MMLU, Benchmark
-from madcal.metrics import CalibrationMetric, brier_score, expected_calibration_error
+from madcal.metrics import (
+    CalibrationMetric,
+    brier_score,
+    ece_equal_mass,
+    expected_calibration_error,
+)
 from madcal.models import ModelAdapter, StubAdapter, TransformersAdapter
 from madcal.prompts import FewShotCompletion, PromptProtocol
 from madcal.signals import Confidence, ConfidenceEntropy, Signal
@@ -24,6 +29,7 @@ SIGNAL_CONFIDENCE: type[Signal] = Confidence
 SIGNAL_ENTROPY: type[Signal] = ConfidenceEntropy
 METRIC_ECE: CalibrationMetric = expected_calibration_error
 METRIC_BRIER: CalibrationMetric = brier_score
+METRIC_ECE_EQUAL_MASS: CalibrationMetric = ece_equal_mass
 
 
 def test_implementations_are_bound_to_their_protocols():
