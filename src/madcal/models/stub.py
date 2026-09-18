@@ -24,8 +24,8 @@ from madcal.models.base import ChoiceScores, Generation, register_model_adapter
 @register_model_adapter("stub")
 class StubAdapter:
     name = "stub"
-    model_id = "stub"
-    revision: str | None = None
+    revision: str | None = "stub"
+    dtype = "none"
     # The stub has no inference library; its behaviour is defined entirely by this
     # codebase, so madcal's own version is the honest answer.
     backend_version = __version__
@@ -36,10 +36,14 @@ class StubAdapter:
 
     def __init__(
         self,
+        model_id: str = "stub",
         seed: int = 0,
         n_choices: int = 4,
         response_template: str = "Answer: {letter}",
+        batch_size: int = 1,
     ) -> None:
+        self.model_id = model_id
+        self.batch_size = batch_size
         self.seed = seed
         self.n_choices = n_choices
         self.response_template = response_template

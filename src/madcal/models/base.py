@@ -94,6 +94,8 @@ class ModelAdapter(Protocol):
     # one checkpoint, and so can two `transformers` minors. Recorded per row so a
     # condition run either side of an upgrade is detectable rather than invisible.
     backend_version: str
+    dtype: str
+    batch_size: int
     supports_scoring: bool
     supports_logprobs: bool
 
