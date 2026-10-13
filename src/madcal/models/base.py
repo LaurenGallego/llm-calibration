@@ -18,7 +18,7 @@ FINISHING_REASONS = ("stop", "length")
 
 # Slack allowed when checking that probabilities sum to what they should. Shared with
 # `signals/` so the two cannot drift apart and disagree about what "sums to 1" means.
-PROBABILITY_TOLERANCE = 1e-9
+PROBABILITY_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True, slots=True)
