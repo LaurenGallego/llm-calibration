@@ -1,7 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=madcal
-#SBATCH --account=uc3m-gts_c3_cluster_1-12
-#SBATCH --partition=gpu-large
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
