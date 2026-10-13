@@ -110,7 +110,7 @@ def choice_answer_slot(response: str, n_choices: int) -> tuple[str, str, tuple[s
     if match is None:
         return None
     before = response[: match.start(1)]
-    context = before.rstrip(" \t*$")
+    context = before.rstrip(" \t")
     return context, before[len(context) :], tuple(_choice_letters(n_choices))
 
 

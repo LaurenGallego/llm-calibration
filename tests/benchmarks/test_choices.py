@@ -67,8 +67,8 @@ def test_choice_count_out_of_range_is_refused(n_choices):
     [
         ("Reasoning.\nAnswer: B", "Reasoning.\nAnswer:", " "),
         ("Reasoning.\n**Answer: B**", "Reasoning.\n**Answer:", " "),
-        ("Reasoning.\n**Answer:** B", "Reasoning.\n**Answer:", "** "),
-        ("Reasoning.\nAnswer: $B$", "Reasoning.\nAnswer:", " $"),
+        ("Reasoning.\n**Answer:** B", "Reasoning.\n**Answer:**", " "),
+        ("Reasoning.\nAnswer: $B$", "Reasoning.\nAnswer: $", ""),
         ("Reasoning.\nAnswer:B", "Reasoning.\nAnswer:", ""),
         ("Reasoning.\n```Answer: D```", "Reasoning.\n```Answer:", " "),
         ("Reasoning.\n**Final Answer: B**", "Reasoning.\n**Final Answer:", " "),
