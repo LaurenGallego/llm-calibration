@@ -7,13 +7,11 @@ from madcal.benchmarks import MMLU
 from madcal.debate import AgentTurn, DebateTranscript, SystemAnswer, SystemNull, agent_id
 from madcal.models import Generation, StubAdapter
 from madcal.orchestration import (
-    STATED_CONFIDENCE,
-    SYSTEM_CONFIDENCE,
     debate_signals,
     transcript_rows,
 )
 from madcal.signals import SignalNull, SignalValue
-from madcal.storage import AnswerNull, Level, SignalKind
+from madcal.storage import AGENT_CONFIDENCE, SYSTEM_CONFIDENCE, AnswerNull, Level, SignalKind
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "mmlu_sample.jsonl"
 N_AGENTS = 3
@@ -130,7 +128,7 @@ def test_confidence_becomes_a_signal_row_at_every_level(question, mmlu):
     _, signals = transcript_rows(transcript, question, mmlu, ())
 
     agents = [row for row in signals if row.level is Level.AGENT]
-    assert {row.signal for row in agents} == {STATED_CONFIDENCE}
+    assert {row.signal for row in agents} == {AGENT_CONFIDENCE}
     assert all(row.kind is SignalKind.SIGNAL for row in agents)
     assert [row.value for row in agents[:3]] == [0.5, 0.6, 0.7]
     assert signals[-1].signal == SYSTEM_CONFIDENCE
@@ -194,7 +192,7 @@ def test_debate_signals_drop_logprob_signals_on_an_adapter_without_them():
 
 def test_an_unknown_confidence_mode_is_refused():
     with pytest.raises(KeyError, match="confidence mode"):
-        debate_signals(StubAdapter(), "token")
+        debate_signals(StubAdapter(), "nonexistent")
 
 
 def test_registered_signals_become_one_row_per_agent_turn(question, mmlu):
@@ -209,7 +207,7 @@ def test_registered_signals_become_one_row_per_agent_turn(question, mmlu):
 
     agents = [row for row in rows if row.level is Level.AGENT]
     assert len(agents) == len(turns) * (1 + len(signals))
-    assert {row.signal for row in agents} == {STATED_CONFIDENCE} | {s.name for s in signals}
+    assert {row.signal for row in agents} == {AGENT_CONFIDENCE} | {s.name for s in signals}
 
     likelihood = [row for row in agents if row.signal == "length_normalised_likelihood"]
     assert len(likelihood) == len(turns)
@@ -240,6 +238,6 @@ def test_the_mode_own_signal_is_stored_once_under_its_fixed_column_name(question
 
     agents = [row for row in rows if row.level is Level.AGENT]
     assert not [row for row in agents if row.signal == "verbalized_confidence"]
-    assert len([row for row in agents if row.signal == STATED_CONFIDENCE]) == N_AGENTS * (
+    assert len([row for row in agents if row.signal == AGENT_CONFIDENCE]) == N_AGENTS * (
         N_ROUNDS + 1
     )

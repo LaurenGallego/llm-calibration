@@ -8,7 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from madcal.models.base import Generation
+from madcal.models.base import ChoiceScores, Generation
 from madcal.registry import Registry
 from madcal.signals import Evidence, SignalNull, SignalValue, signal_registry
 
@@ -26,6 +26,7 @@ class Message:
 
 type Renderer = Callable[[Sequence[Message]], str]
 type AnswerExtractor = Callable[[str, int | None], str | None]
+type AnswerLocator = Callable[[str, int | None], tuple[str, str, tuple[str, ...]] | None]
 
 
 def agent_id(index: int) -> str:
@@ -59,6 +60,7 @@ class AgentTurn:
     generation: Generation
     answer: str | None
     confidence: SignalValue
+    scores: ChoiceScores | None = None
 
     def __post_init__(self) -> None:
         if self.round < 0:
@@ -144,8 +146,14 @@ class ConfidenceMode:
     name: str
     instruction: str | None
     signal: str | None
+    scored: bool = False
 
     def __post_init__(self) -> None:
+        if self.scored and (self.instruction is not None or self.signal is not None):
+            raise ValueError(
+                f"confidence mode {self.name!r} is read from answer scores, so it neither "
+                f"instructs the agent nor names a text signal"
+            )
         if (self.instruction is None) != (self.signal is None):
             raise ValueError(
                 f"confidence mode {self.name!r} must state an instruction and name a signal, "
@@ -156,6 +164,11 @@ class ConfidenceMode:
             raise ValueError(
                 f"unknown signal {self.signal!r} for mode {self.name!r}; known: {known}"
             )
+
+    @property
+    def states_confidence(self) -> bool:
+        """Whether every agent turn under this mode carries a confidence."""
+        return self.scored or self.signal is not None
 
     def read(self, evidence: Evidence) -> SignalValue:
         """Return the confidence this mode asked for, or a null if it asked for none."""
@@ -172,6 +185,7 @@ class AggregationRule:
     requires_confidence: bool
     requires_odd_agents: bool
     aggregate: Callable[[Sequence[AgentTurn]], SystemAnswer]
+    requires_scores: bool = False
 
 
 confidence_mode_registry: Registry[ConfidenceMode] = Registry("confidence mode")
@@ -202,10 +216,12 @@ class DebateConfig(BaseModel):
         rule = aggregation_registry.get(self.aggregation)
         if rule.requires_odd_agents and self.n_agents % 2 == 0:
             raise ValueError(f"aggregation {rule.name!r} requires an odd n_agents")
-        if rule.requires_confidence and mode.instruction is None:
+        if rule.requires_confidence and not mode.states_confidence:
             raise ValueError(
                 f"aggregation {rule.name!r} requires a confidence_mode that states confidence"
             )
+        if rule.requires_scores and not mode.scored:
+            raise ValueError(f"aggregation {rule.name!r} requires a scored confidence_mode")
         if self.n_rounds > 0 and self.n_agents < 2:
             raise ValueError("debate rounds require at least two agents")
         if self.temperature == 0.0 and self.n_agents > 1:

@@ -74,6 +74,8 @@ class MMLUBenchmarkConfig(_Strict):
     # Local copies, for an offline node or a test fixture. Absent both, the hub is read.
     source: Path | None = None
     exemplar_source: Path | None = None
+    n_questions: int | None = Field(default=None, ge=1)
+    sample_seed: int = 0
 
 
 # One arm today; adding a benchmark adds an arm rather than widening a shared class.

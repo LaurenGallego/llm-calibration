@@ -8,6 +8,7 @@ from madcal.benchmarks.base import (
     TaskFormat,
     answer_letter,
     choice_answer_instruction,
+    choice_answer_slot,
     extract_choice_letter,
     register_benchmark,
 )
@@ -74,6 +75,13 @@ class MMLU:
         if n_choices is None:
             raise ValueError("MMLU is multiple choice; extract_answer needs n_choices")
         return extract_choice_letter(response, n_choices)
+
+    def answer_slot(
+        self, response: str, n_choices: int | None
+    ) -> tuple[str, str, tuple[str, ...]] | None:
+        if n_choices is None:
+            raise ValueError("MMLU is multiple choice; answer_slot needs n_choices")
+        return choice_answer_slot(response, n_choices)
 
     def grade(self, question: Question, extracted: str) -> bool:
         if not isinstance(extracted, str):

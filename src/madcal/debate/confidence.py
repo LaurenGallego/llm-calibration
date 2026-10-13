@@ -19,3 +19,7 @@ VERBALIZED = confidence_mode_registry.register("verbalized")(
         signal="verbalized_confidence",
     )
 )
+
+TOKEN = confidence_mode_registry.register("token")(
+    ConfidenceMode(name="token", instruction=None, signal=None, scored=True)
+)

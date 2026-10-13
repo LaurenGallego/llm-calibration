@@ -4,8 +4,8 @@ import pytest
 
 from madcal.config import RunConfig
 from madcal.metrics import brier_score, expected_calibration_error
-from madcal.orchestration import STATED_CONFIDENCE, SYSTEM_CONFIDENCE, build_benchmark, run
-from madcal.storage import ResultStore, RunStatus
+from madcal.orchestration import build_benchmark, run
+from madcal.storage import AGENT_CONFIDENCE, SYSTEM_CONFIDENCE, ResultStore, RunStatus
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mmlu_sample.jsonl"
 TEMPLATE = "Answer: {letter}\nConfidence: {confidence}%"
@@ -130,7 +130,7 @@ def test_every_registered_signal_is_stored_at_the_agent_grain(stored):
     turns = len(questions) * config.n_agents * (config.n_rounds + 1)
     assert rows == [
         ("length_normalised_likelihood", "signal", turns, turns),
-        (STATED_CONFIDENCE, "signal", turns, turns),
+        (AGENT_CONFIDENCE, "signal", turns, turns),
     ]
 
 
@@ -143,7 +143,7 @@ def test_the_stored_signals_are_distinct_measurements_not_one_column_twice(store
             "AND a.agent_id IS NOT DISTINCT FROM b.agent_id "
             "AND a.round IS NOT DISTINCT FROM b.round "
             "WHERE a.signal = ? AND b.signal = 'length_normalised_likelihood'",
-            [STATED_CONFIDENCE],
+            [AGENT_CONFIDENCE],
         ).fetchall()
 
     assert pairs

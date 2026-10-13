@@ -24,6 +24,21 @@ def majority_vote(turns: Sequence[AgentTurn]) -> SystemAnswer:
     return SystemAnswer(answer, count / len(turns))
 
 
+def majority_probability(turns: Sequence[AgentTurn]) -> SystemAnswer:
+    """Return the majority answer, with the mean probability the scored agents put on it."""
+    vote = majority_vote(turns)
+    if vote.answer is None:
+        return vote
+    probabilities = [
+        turn.scores.probabilities()[turn.scores.choices.index(vote.answer)]
+        for turn in turns
+        if turn.scores is not None
+    ]
+    if not probabilities:
+        raise ValueError("majority_probability needs scored turns; none carry scores")
+    return SystemAnswer(vote.answer, sum(probabilities) / len(probabilities))
+
+
 def argmax_confidence(turns: Sequence[AgentTurn]) -> SystemAnswer:
     """Return the answer of the most confident agent among those with a parsed answer."""
     rated = [
@@ -55,5 +70,15 @@ ARGMAX_CONFIDENCE = aggregation_registry.register("argmax_confidence")(
         requires_confidence=True,
         requires_odd_agents=False,
         aggregate=argmax_confidence,
+    )
+)
+
+MAJORITY_PROBABILITY = aggregation_registry.register("majority_probability")(
+    AggregationRule(
+        name="majority_probability",
+        requires_confidence=True,
+        requires_odd_agents=True,
+        aggregate=majority_probability,
+        requires_scores=True,
     )
 )

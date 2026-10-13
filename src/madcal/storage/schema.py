@@ -38,6 +38,9 @@ class AnswerNull(StrEnum):
     NO_VALID_ANSWERS = "no_valid_answers"
 
 
+AGENT_CONFIDENCE = "stated_confidence"
+SYSTEM_CONFIDENCE = "system_confidence"
+
 AGENT_NULLS = frozenset({AnswerNull.PARSE_FAILED})
 SYSTEM_NULLS = frozenset({AnswerNull.TIE, AnswerNull.NO_VALID_ANSWERS})
 
