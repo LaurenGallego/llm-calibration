@@ -28,7 +28,7 @@ Machine-specific settings (SLURM account and partition, `HF_TOKEN`) live in a gi
 **SLURM cluster.** From the repo root on the login node, after `fetch`:
 
 ```bash
-scripts/submit_slurm.sh configs/<config>.yaml
+scripts/submit_slurm.sh [--sbatch-option ...] configs/<config>.yaml
 ```
 
 Any `SBATCH_*` variable in `.env` (e.g. `SBATCH_TIMELIMIT`) overrides the defaults in

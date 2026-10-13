@@ -8,4 +8,9 @@ fi
 set -a
 source .env
 set +a
-sbatch scripts/slurm.sbatch "$@"
+options=()
+while [ $# -gt 0 ] && [[ "$1" == -* ]]; do
+    options+=("$1")
+    shift
+done
+sbatch ${options[@]+"${options[@]}"} scripts/slurm.sbatch "$@"
