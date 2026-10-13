@@ -60,6 +60,7 @@ name = "signals never reach a label"
 type = "forbidden"
 source_modules = ["madcal.signals"]
 forbidden_modules = [
+    "madcal.analysis",
     "madcal.benchmarks",
     "madcal.debate",
     "madcal.metrics",

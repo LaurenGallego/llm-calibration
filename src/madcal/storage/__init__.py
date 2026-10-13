@@ -5,11 +5,13 @@ touches a label beyond recording the grade it was handed.
 """
 
 from madcal.storage.schema import (
+    AGENT_CONFIDENCE,
     PARTITION_KEYS,
     QUESTIONS_SCHEMA,
     RESUME_KEY,
     RUNS_SCHEMA,
     SIGNALS_SCHEMA,
+    SYSTEM_CONFIDENCE,
     TABLES,
     AnswerNull,
     Level,
@@ -24,11 +26,13 @@ from madcal.storage.schema import (
 from madcal.storage.store import ResultStore, RunManifest
 
 __all__ = [
+    "AGENT_CONFIDENCE",
     "PARTITION_KEYS",
     "QUESTIONS_SCHEMA",
     "RESUME_KEY",
     "RUNS_SCHEMA",
     "SIGNALS_SCHEMA",
+    "SYSTEM_CONFIDENCE",
     "TABLES",
     "AnswerNull",
     "Level",

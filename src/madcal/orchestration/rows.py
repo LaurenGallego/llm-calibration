@@ -12,10 +12,15 @@ from madcal.debate import (
 )
 from madcal.models import ModelAdapter
 from madcal.signals import Signal, SignalValue, applicable, signal_registry
-from madcal.storage import AnswerNull, Level, QuestionRow, SignalKind, SignalRow
-
-STATED_CONFIDENCE = "stated_confidence"
-SYSTEM_CONFIDENCE = "system_confidence"
+from madcal.storage import (
+    AGENT_CONFIDENCE,
+    SYSTEM_CONFIDENCE,
+    AnswerNull,
+    Level,
+    QuestionRow,
+    SignalKind,
+    SignalRow,
+)
 
 SYSTEM_NULLS = {
     SystemNull.TIE: AnswerNull.TIE,
@@ -91,7 +96,7 @@ def _system_row(
 
 
 def _stated_confidence(turn: AgentTurn, question_id: str) -> SignalRow:
-    return _signal_row(turn, question_id, STATED_CONFIDENCE, turn.confidence)
+    return _signal_row(turn, question_id, AGENT_CONFIDENCE, turn.confidence)
 
 
 def _computed_signals(
