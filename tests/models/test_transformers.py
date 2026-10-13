@@ -17,7 +17,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from madcal.models import TransformersAdapter
-from madcal.models.transformers import cached_commit_sha
+from madcal.models.transformers import cached_commit_sha, sampled_logprobs
 
 TINY_MODEL = "sshleifer/tiny-gpt2"
 PROMPT = "What is 2+2?\nAnswer:"
@@ -204,3 +204,24 @@ def test_token_logprobs_align_with_tokens(adapter: TransformersAdapter):
 def test_a_checkpoint_missing_from_the_hub_cache_has_no_commit_sha():
     with pytest.raises(ValueError, match="could not resolve a commit SHA"):
         cached_commit_sha("madcal-test/not-in-any-cache", None)
+
+
+def test_sampled_logprobs_equal_the_library_transition_scores(adapter: TransformersAdapter):
+    model = adapter._model
+    encoded = adapter._tokenizer(["The capital of France is"], return_tensors="pt")
+    torch.manual_seed(0)
+    out = model.generate(  # pyright: ignore[reportAttributeAccessIssue]
+        **encoded,
+        max_new_tokens=6,
+        do_sample=True,
+        temperature=0.7,
+        num_return_sequences=3,
+        return_dict_in_generate=True,
+        output_scores=True,
+        pad_token_id=adapter._tokenizer.eos_token_id,
+    )
+    new_ids = out.sequences[:, encoded["input_ids"].shape[1] :]
+    expected = model.compute_transition_scores(  # pyright: ignore[reportAttributeAccessIssue]
+        out.sequences, out.scores, normalize_logits=True
+    )
+    assert torch.allclose(sampled_logprobs(out.scores, new_ids), expected)

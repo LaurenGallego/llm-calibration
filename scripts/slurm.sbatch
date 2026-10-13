@@ -11,6 +11,7 @@
 set -euo pipefail
 unset PYTHONHOME PYTHONPATH
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 echo "host $(hostname) | commit $(git rev-parse --short HEAD) | configs: $*"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader

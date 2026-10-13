@@ -34,6 +34,7 @@ Decisions this file implements, all recorded in `DEVLOG.md`:
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from madcal.models.base import ChoiceScores, Generation, register_model_adapter
 
@@ -53,6 +54,19 @@ def cached_commit_sha(model_id: str, revision: str | None) -> str:
             f"fetch it into the hub cache rather than loading a bare local path."
         ) from error
     return Path(snapshot).name
+
+
+def sampled_logprobs(scores: Sequence[Any], tokens: Any) -> Any:
+    """Return each generated token's log-probability under the scores it was drawn from."""
+    import torch
+
+    return torch.stack(
+        [
+            torch.log_softmax(step.float(), dim=-1).gather(-1, tokens[:, index, None]).squeeze(-1)
+            for index, step in enumerate(scores)
+        ],
+        dim=1,
+    )
 
 
 @register_model_adapter("transformers")
@@ -269,12 +283,11 @@ class TransformersAdapter:
         # temperature 0 these logprobs are under the sampling distribution rather than
         # the model's own. Signal 3 uses the text, not these values; anything reading
         # them as model confidence must account for the temperature.
-        transition = self._model.compute_transition_scores(  # pyright: ignore[reportAttributeAccessIssue]
-            out.sequences, out.scores, normalize_logits=True
-        )
+        new_ids = out.sequences[:, prompt_width:]
+        transition = sampled_logprobs(out.scores, new_ids).cpu()
+        del out
 
         eos_id = self._tokenizer.eos_token_id
-        new_ids = out.sequences[:, prompt_width:]
 
         # generate returns prompts * n sequences, prompt-major.
         grouped: list[list[Generation]] = []
