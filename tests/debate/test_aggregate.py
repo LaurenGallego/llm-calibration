@@ -10,6 +10,8 @@ from madcal.debate import (
     argmax_confidence,
     majority_probability,
     majority_vote,
+    mean_distribution,
+    pooled_distribution,
 )
 from madcal.models import ChoiceScores, Generation
 from madcal.signals import SignalNull, SignalValue
@@ -100,3 +102,47 @@ def test_majority_probability_keeps_the_vote_nulls():
 def test_majority_probability_without_scores_is_refused():
     with pytest.raises(ValueError, match="scored turns"):
         majority_probability([turn("A", 0.5), turn("A", 0.5), turn("B", 0.5)])
+
+
+def test_pooled_distribution_spreads_each_voters_remaining_mass_evenly():
+    pooled = pooled_distribution([("A", 0.7), ("A", 0.9), ("B", 0.4)], "ABCD")
+    assert pooled == pytest.approx({"A": 0.6, "B": 8 / 45, "C": 1 / 9, "D": 1 / 9})
+
+
+def test_one_agent_keeps_its_own_answer_and_stated_confidence():
+    assert mean_distribution([turn("C", 0.8)], 4) == SystemAnswer("C", 0.8)
+
+
+def test_dissent_lowers_the_pooled_confidence():
+    result = mean_distribution([turn("A", 0.7), turn("A", 0.9), turn("B", 0.4)], 4)
+    assert result.answer == "A"
+    assert result.confidence == pytest.approx(0.6)
+
+
+def test_a_confident_minority_can_outweigh_a_hesitant_majority():
+    result = mean_distribution([turn("A", 0.3), turn("A", 0.3), turn("B", 1.0)], 4)
+    assert result.answer == "B"
+    assert result.confidence == pytest.approx(22 / 45)
+
+
+def test_pooling_ignores_agents_without_an_answer_or_confidence():
+    result = mean_distribution([turn("A", 0.6), turn(None, 0.9), turn("B")], 4)
+    assert result == SystemAnswer("A", 0.6)
+
+
+def test_equal_pooled_mass_is_a_tie():
+    assert mean_distribution([turn("A", 0.8), turn("B", 0.8)], 4).reason is SystemNull.TIE
+
+
+def test_pooling_without_votes_has_no_valid_answers():
+    assert mean_distribution([turn(None)] * 3, 4).reason is SystemNull.NO_VALID_ANSWERS
+
+
+def test_pooling_needs_a_fixed_option_set():
+    with pytest.raises(ValueError, match="options"):
+        mean_distribution([turn("A", 0.8)], None)
+
+
+def test_votes_outside_the_options_are_refused():
+    with pytest.raises(ValueError, match="outside"):
+        pooled_distribution([("E", 0.8)], "ABCD")

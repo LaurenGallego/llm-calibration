@@ -108,7 +108,7 @@ def run_debate(
             n_agents=config.n_agents,
             n_rounds=config.n_rounds,
             turns=tuple(turns[question_index]),
-            system=rule.aggregate(latest[question_index]),
+            system=rule.aggregate(latest[question_index], question.n_choices),
         )
         for question_index, question in enumerate(questions)
     ]

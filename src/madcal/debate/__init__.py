@@ -1,6 +1,14 @@
 """Multi-agent debate engine."""
 
-from madcal.debate.aggregate import argmax_confidence, majority_probability, majority_vote
+from madcal.debate.aggregate import (
+    argmax_confidence,
+    choice_options,
+    majority_probability,
+    majority_vote,
+    mean_distribution,
+    pooled_answer,
+    pooled_distribution,
+)
 from madcal.debate.base import (
     AgentTurn,
     AggregationRule,
@@ -42,10 +50,14 @@ __all__ = [
     "agent_id",
     "aggregation_registry",
     "argmax_confidence",
+    "choice_options",
     "confidence_mode_registry",
     "majority_probability",
     "majority_vote",
+    "mean_distribution",
     "opening_request",
+    "pooled_answer",
+    "pooled_distribution",
     "preset",
     "round_seed",
     "run_debate",

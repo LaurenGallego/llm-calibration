@@ -14,7 +14,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "n_agents": 3,
         "n_rounds": 2,
         "confidence_mode": "verbalized",
-        "aggregation": "argmax_confidence",
+        "aggregation": "mean_distribution",
     },
     "vanilla": {
         "n_agents": 3,

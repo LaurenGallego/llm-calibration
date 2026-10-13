@@ -184,7 +184,7 @@ class AggregationRule:
     name: str
     requires_confidence: bool
     requires_odd_agents: bool
-    aggregate: Callable[[Sequence[AgentTurn]], SystemAnswer]
+    aggregate: Callable[[Sequence[AgentTurn], int | None], SystemAnswer]
     requires_scores: bool = False
 
 
