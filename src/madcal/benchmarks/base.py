@@ -69,6 +69,10 @@ class Benchmark(Protocol):
 
     def extract_answer(self, response: str, n_choices: int | None) -> str | None: ...
 
+    def answer_slot(
+        self, response: str, n_choices: int | None
+    ) -> tuple[str, str, tuple[str, ...]] | None: ...
+
     def grade(self, question: Question, extracted: str) -> bool: ...
 
 
@@ -93,10 +97,23 @@ def choice_answer_instruction(n_choices: int) -> str:
 
 def extract_choice_letter(response: str, n_choices: int) -> str | None:
     """Return the letter of the last line consisting only of `Answer: X`, or None."""
-    matches = _choice_pattern(n_choices).findall(response)
-    if not matches:
+    match = _last_choice_match(response, n_choices)
+    return None if match is None else match.group(1).upper()
+
+
+def choice_answer_slot(response: str, n_choices: int) -> tuple[str, str, tuple[str, ...]] | None:
+    """Return the text before the answer letter, the lead-in to it, and the candidate letters."""
+    match = _last_choice_match(response, n_choices)
+    if match is None:
         return None
-    return matches[-1].upper()
+    before = response[: match.start(1)]
+    context = before.rstrip(" \t*$")
+    return context, before[len(context) :], tuple(_choice_letters(n_choices))
+
+
+def _last_choice_match(response: str, n_choices: int) -> re.Match[str] | None:
+    matches = list(_choice_pattern(n_choices).finditer(response))
+    return matches[-1] if matches else None
 
 
 @cache

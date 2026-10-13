@@ -41,7 +41,9 @@ def run(config: RunConfig, store: ResultStore | None = None) -> RunOutcome:
 
     signals = debate_signals(adapter, debate_config.confidence_mode)
 
-    questions = list(benchmark.load())
+    questions = list(
+        benchmark.load(limit=config.benchmark.n_questions, seed=config.benchmark.sample_seed)
+    )
     already = store.completed_questions(config_hash)
     pending = [question for question in questions if question.id not in already]
 
@@ -88,6 +90,7 @@ def _process_chunk(
         renderer,
         benchmark.extract_answer,
         seed=config.seed,
+        locate_answer=benchmark.answer_slot,
     )
     question_rows: list[QuestionRow] = []
     signal_rows: list[SignalRow] = []

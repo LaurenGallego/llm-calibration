@@ -45,6 +45,8 @@ def test_environment_fields_do_not_move_the_hash():
         {"prompt": {"name": "plain_chat"}},
         {"seed": 99},
         {"benchmark": {"name": "mmlu", "revision": "abc123"}},
+        {"benchmark": {"name": "mmlu", "n_questions": 500}},
+        {"benchmark": {"name": "mmlu", "n_questions": 500, "sample_seed": 1}},
         {"debate": {"protocol": "vanilla", "temperature": 0.7}},
         {"debate": {"protocol": "best_of_n", "temperature": 1.0, "n_agents": 3}},
         {"debate": {"protocol": "vanilla", "temperature": 1.0, "max_tokens": 256}},
@@ -104,3 +106,14 @@ def test_a_run_cannot_be_narrowed_to_a_subset():
         build(benchmark={"name": "mmlu", "limit": 100})
     with pytest.raises(ValidationError, match="Extra inputs"):
         build(benchmark={"name": "mmlu", "subjects": ["anatomy"]})
+
+
+def test_a_subsample_differs_from_the_same_size_subsample_under_another_seed():
+    first = build(benchmark={"name": "mmlu", "n_questions": 500})
+    second = build(benchmark={"name": "mmlu", "n_questions": 500, "sample_seed": 1})
+    assert first.config_hash(SHA) != second.config_hash(SHA)
+
+
+def test_a_subsample_must_hold_at_least_one_question():
+    with pytest.raises(ValidationError, match="n_questions"):
+        build(benchmark={"name": "mmlu", "n_questions": 0})

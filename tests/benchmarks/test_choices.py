@@ -1,6 +1,6 @@
 import pytest
 
-from madcal.benchmarks import choice_answer_instruction, extract_choice_letter
+from madcal.benchmarks import choice_answer_instruction, choice_answer_slot, extract_choice_letter
 
 
 @pytest.mark.parametrize(
@@ -53,3 +53,31 @@ def test_choice_count_out_of_range_is_refused(n_choices):
         extract_choice_letter("Answer: A", n_choices)
     with pytest.raises(ValueError, match="n_choices"):
         choice_answer_instruction(n_choices)
+
+
+@pytest.mark.parametrize(
+    ("response", "context", "lead"),
+    [
+        ("Reasoning.\nAnswer: B", "Reasoning.\nAnswer:", " "),
+        ("Reasoning.\n**Answer: B**", "Reasoning.\n**Answer:", " "),
+        ("Reasoning.\n**Answer:** B", "Reasoning.\n**Answer:", "** "),
+        ("Reasoning.\nAnswer: $B$", "Reasoning.\nAnswer:", " $"),
+        ("Reasoning.\nAnswer:B", "Reasoning.\nAnswer:", ""),
+        ("Answer: A\nOn reflection.\nAnswer: B", "Answer: A\nOn reflection.\nAnswer:", " "),
+    ],
+)
+def test_answer_slot_splits_the_response_where_the_final_letter_is_written(response, context, lead):
+    assert choice_answer_slot(response, 4) == (context, lead, ("A", "B", "C", "D"))
+
+
+def test_answer_slot_and_extraction_agree_on_which_line_is_the_answer():
+    response = "Answer: A\nNo wait.\nAnswer: C\nBecause B is wrong."
+    slot = choice_answer_slot(response, 4)
+    assert slot is not None
+    context, lead, _ = slot
+    assert response.startswith(f"{context}{lead}{extract_choice_letter(response, 4)}\n")
+    assert extract_choice_letter(response, 4) == "C"
+
+
+def test_answer_slot_is_none_without_an_answer_line():
+    assert choice_answer_slot("I think it is B.", 4) is None

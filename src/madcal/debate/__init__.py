@@ -1,10 +1,11 @@
 """Multi-agent debate engine."""
 
-from madcal.debate.aggregate import argmax_confidence, majority_vote
+from madcal.debate.aggregate import argmax_confidence, majority_probability, majority_vote
 from madcal.debate.base import (
     AgentTurn,
     AggregationRule,
     AnswerExtractor,
+    AnswerLocator,
     ConfidenceMode,
     DebateConfig,
     DebateQuestion,
@@ -28,6 +29,7 @@ __all__ = [
     "AgentTurn",
     "AggregationRule",
     "AnswerExtractor",
+    "AnswerLocator",
     "ConfidenceMode",
     "DebateConfig",
     "DebateQuestion",
@@ -41,6 +43,7 @@ __all__ = [
     "aggregation_registry",
     "argmax_confidence",
     "confidence_mode_registry",
+    "majority_probability",
     "majority_vote",
     "opening_request",
     "preset",

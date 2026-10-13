@@ -1,7 +1,17 @@
+import math
+from dataclasses import replace
+
 import pytest
 
-from madcal.debate import AgentTurn, SystemAnswer, SystemNull, argmax_confidence, majority_vote
-from madcal.models import Generation
+from madcal.debate import (
+    AgentTurn,
+    SystemAnswer,
+    SystemNull,
+    argmax_confidence,
+    majority_probability,
+    majority_vote,
+)
+from madcal.models import ChoiceScores, Generation
 from madcal.signals import SignalNull, SignalValue
 
 
@@ -58,3 +68,35 @@ def test_argmax_tie_on_the_same_answer_is_not_a_tie():
 
 def test_argmax_with_nothing_rated():
     assert argmax_confidence([turn("A"), turn(None)]).reason is SystemNull.NO_VALID_ANSWERS
+
+
+def scored(answer: str | None, probabilities: tuple[float, ...] = ()) -> AgentTurn:
+    if answer is None:
+        return turn(None)
+    scores = ChoiceScores(choices=("A", "B", "C"), logprobs=tuple(map(math.log, probabilities)))
+    return replace(turn(answer, probabilities["ABC".index(answer)]), scores=scores)
+
+
+def test_majority_probability_averages_every_scored_agent_probability_on_the_majority():
+    result = majority_probability(
+        [scored("A", (0.6, 0.3, 0.1)), scored("A", (0.8, 0.1, 0.1)), scored("B", (0.2, 0.7, 0.1))]
+    )
+    assert result.answer == "A"
+    assert result.confidence == pytest.approx((0.6 + 0.8 + 0.2) / 3)
+
+
+def test_majority_probability_leaves_unparsed_agents_out_of_the_mean():
+    result = majority_probability(
+        [scored("A", (0.5, 0.25, 0.25)), scored("A", (0.9, 0.05, 0.05)), scored(None)]
+    )
+    assert result.confidence == pytest.approx(0.7)
+
+
+def test_majority_probability_keeps_the_vote_nulls():
+    split = [scored("A", (0.4, 0.3, 0.3)), scored("B", (0.3, 0.4, 0.3)), scored(None)]
+    assert majority_probability(split).reason is SystemNull.TIE
+
+
+def test_majority_probability_without_scores_is_refused():
+    with pytest.raises(ValueError, match="scored turns"):
+        majority_probability([turn("A", 0.5), turn("A", 0.5), turn("B", 0.5)])

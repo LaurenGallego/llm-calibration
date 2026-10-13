@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from madcal.debate import (
     AgentTurn,
+    ConfidenceMode,
     DebateConfig,
     DebateQuestion,
     DebateTranscript,
@@ -115,6 +116,18 @@ def test_majority_with_even_agents_is_refused():
 def test_argmax_confidence_without_stated_confidence_is_refused():
     with pytest.raises(ValidationError, match="states confidence"):
         config(aggregation="argmax_confidence", confidence_mode="none")
+
+
+def test_majority_probability_without_a_scored_mode_is_refused():
+    with pytest.raises(ValidationError, match="scored confidence_mode"):
+        config(aggregation="majority_probability", confidence_mode="verbalized")
+
+
+def test_scored_mode_with_an_instruction_or_text_signal_is_refused():
+    with pytest.raises(ValueError, match="answer scores"):
+        ConfidenceMode(name="bad", instruction="Say it.", signal=None, scored=True)
+    with pytest.raises(ValueError, match="answer scores"):
+        ConfidenceMode(name="bad", instruction=None, signal="confidence", scored=True)
 
 
 def test_greedy_decoding_with_several_agents_is_refused():

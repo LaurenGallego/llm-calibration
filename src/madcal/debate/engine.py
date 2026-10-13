@@ -2,10 +2,12 @@
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import replace
 
 from madcal.debate.base import (
     AgentTurn,
     AnswerExtractor,
+    AnswerLocator,
     ConfidenceMode,
     DebateConfig,
     DebateQuestion,
@@ -17,8 +19,8 @@ from madcal.debate.base import (
     aggregation_registry,
     confidence_mode_registry,
 )
-from madcal.models import Generation, ModelAdapter
-from madcal.signals import Evidence
+from madcal.models import ChoiceScores, Generation, ModelAdapter
+from madcal.signals import Evidence, SignalNull, SignalValue
 
 PEER_HEADER = "These are the responses to the question from other agents:"
 PEER_TEMPLATE = "One agent response: ```{text}```"
@@ -36,6 +38,7 @@ def run_debate(
     render: Renderer,
     extract_answer: AnswerExtractor,
     seed: int | None = None,
+    locate_answer: AnswerLocator | None = None,
 ) -> list[DebateTranscript]:
     """Run one debate per question, all questions advancing one round at a time."""
     if not questions:
@@ -47,18 +50,15 @@ def run_debate(
     mode = confidence_mode_registry.get(config.confidence_mode)
     rule = aggregation_registry.get(config.aggregation)
     agents = [agent_id(index) for index in range(config.n_agents)]
+    if mode.scored and locate_answer is None:
+        raise ValueError(f"confidence mode {mode.name!r} needs an answer locator to score answers")
 
     histories = [
         [[Message(Role.USER, opening_request(question, mode))] for _ in agents]
         for question in questions
     ]
-    opening = _generate(
-        adapter,
-        [render(per_agent[0]) for per_agent in histories],
-        config.n_agents,
-        config,
-        round_seed(seed, 0),
-    )
+    opening_prompts = [render(per_agent[0]) for per_agent in histories]
+    opening = _generate(adapter, opening_prompts, config.n_agents, config, round_seed(seed, 0))
     latest = [
         [
             _turn(agents[index], 0, sample, question, extract_answer, mode)
@@ -66,6 +66,9 @@ def run_debate(
         ]
         for question, samples in zip(questions, opening, strict=True)
     ]
+    if mode.scored and locate_answer is not None:
+        grid = [[prompt] * config.n_agents for prompt in opening_prompts]
+        latest = _scored(latest, grid, questions, adapter, locate_answer)
     turns = [list(round_turns) for round_turns in latest]
 
     for round_ in range(1, config.n_rounds + 1):
@@ -92,6 +95,10 @@ def run_debate(
             ]
             for question_index in range(len(questions))
         ]
+        if mode.scored and locate_answer is not None:
+            width = config.n_agents
+            grid = [prompts[start : start + width] for start in range(0, len(prompts), width)]
+            latest = _scored(latest, grid, questions, adapter, locate_answer)
         for question_index, round_turns in enumerate(latest):
             turns[question_index].extend(round_turns)
 
@@ -160,10 +167,61 @@ def _turn(
     extract_answer: AnswerExtractor,
     mode: ConfidenceMode,
 ) -> AgentTurn:
+    answer = extract_answer(generation.text, question.n_choices)
+    evidence = Evidence(generations=(generation,))
     return AgentTurn(
         agent_id=agent,
         round=round_,
         generation=generation,
-        answer=extract_answer(generation.text, question.n_choices),
-        confidence=mode.read(Evidence(generations=(generation,))),
+        answer=answer,
+        confidence=_unscored(answer) if mode.scored else mode.read(evidence),
     )
+
+
+def _unscored(answer: str | None) -> SignalValue:
+    reason = SignalNull.PARSE_FAILED if answer is None else SignalNull.NO_CHOICE_SCORES
+    return SignalValue(None, reason)
+
+
+def _scored(
+    round_turns: Sequence[Sequence[AgentTurn]],
+    prompts: Sequence[Sequence[str]],
+    questions: Sequence[DebateQuestion],
+    adapter: ModelAdapter,
+    locate_answer: AnswerLocator,
+) -> list[list[AgentTurn]]:
+    requests: list[tuple[int, int, str, tuple[str, ...], tuple[str, ...]]] = []
+    for question_index, (turns, question) in enumerate(zip(round_turns, questions, strict=True)):
+        for agent_index, turn in enumerate(turns):
+            slot = None if turn.answer is None else locate_answer(turn.text, question.n_choices)
+            if slot is None:
+                continue
+            context, lead, labels = slot
+            requests.append(
+                (
+                    question_index,
+                    agent_index,
+                    prompts[question_index][agent_index] + context,
+                    tuple(lead + label for label in labels),
+                    labels,
+                )
+            )
+    raw = (
+        adapter.score_choices([r[2] for r in requests], [r[3] for r in requests])
+        if requests
+        else []
+    )
+    if len(raw) != len(requests):
+        raise RuntimeError(f"adapter returned {len(raw)} scores for {len(requests)} answers")
+
+    result = [list(turns) for turns in round_turns]
+    for (question_index, agent_index, _, _, labels), scored in zip(requests, raw, strict=True):
+        scores = ChoiceScores(choices=labels, logprobs=tuple(scored.logprobs))
+        turn = result[question_index][agent_index]
+        if turn.answer is None or turn.answer not in labels:
+            raise ValueError(f"answer {turn.answer!r} is not among the scored labels {labels}")
+        probability = scores.probabilities()[labels.index(turn.answer)]
+        result[question_index][agent_index] = replace(
+            turn, confidence=SignalValue(probability), scores=scores
+        )
+    return result

@@ -6,6 +6,7 @@ import pytest
 from madcal.debate import (
     PRESETS,
     VERBALIZED_INSTRUCTION,
+    DebateConfig,
     DebateQuestion,
     Message,
     SystemNull,
@@ -31,11 +32,23 @@ def extract(text: str, n_choices: int | None) -> str | None:
     return matches[-1] if matches else None
 
 
+def locate(text: str, n_choices: int | None) -> tuple[str, str, tuple[str, ...]] | None:
+    matches = list(re.finditer(r"Answer:( )[A-D]", text))
+    if not matches:
+        return None
+    return text[: matches[-1].start(1)], " ", ("A", "B", "C", "D")
+
+
 class RecordingAdapter(StubAdapter):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.calls: list[tuple[list[str], int]] = []
         self.seeds: list[int | None] = []
+        self.scored: list[tuple[list[str], list[list[str]]]] = []
+
+    def score_choices(self, prompts, choices):
+        self.scored.append((list(prompts), [list(choice_set) for choice_set in choices]))
+        return super().score_choices(prompts, choices)
 
     def generate(self, prompts, n=1, temperature=0.0, max_tokens=512, seed=None):
         self.calls.append((list(prompts), n))
@@ -46,7 +59,7 @@ class RecordingAdapter(StubAdapter):
 def debate(name: str, adapter: StubAdapter | None = None, questions=QUESTIONS):
     config = preset(name, temperature=1.0, **SETTINGS.get(name, {}))
     adapter = adapter or StubAdapter(response_template=TEMPLATE)
-    return run_debate(questions, config, adapter, render, extract, seed=0)
+    return run_debate(questions, config, adapter, render, extract, seed=0, locate_answer=locate)
 
 
 @pytest.mark.parametrize("name", sorted(PRESETS))
@@ -110,9 +123,8 @@ SCRIPT = [
 def scripted_vanilla(script=SCRIPT):
     adapter = ScriptedAdapter(script)
     question = DebateQuestion("q", "Some question?", 4)
-    transcript = run_debate(
-        [question], preset("vanilla", temperature=1.0), adapter, render, extract, seed=0
-    )[0]
+    config = preset("vanilla", temperature=1.0)
+    transcript = run_debate([question], config, adapter, render, extract, 0, locate)[0]
     return transcript, adapter
 
 
@@ -133,8 +145,11 @@ def test_each_agent_sees_its_own_history_and_its_peers_latest_responses():
 def test_system_answer_aggregates_the_final_round_only():
     transcript, _ = scripted_vanilla()
     assert [turn.answer for turn in transcript.round_turns(2)] == ["C", "B", "B"]
+    final = transcript.round_turns(2)
+    on_b = [turn.scores.probabilities()[1] for turn in final if turn.scores is not None]
+    assert len(on_b) == 3
     assert transcript.system.answer == "B"
-    assert transcript.system.confidence == pytest.approx(2 / 3)
+    assert transcript.system.confidence == pytest.approx(sum(on_b) / 3)
 
 
 def test_three_way_split_in_the_final_round_is_a_null_tie():
@@ -160,10 +175,54 @@ def test_unparseable_responses_are_nulls_all_the_way_up():
 
 def test_confidence_mode_none_records_not_applicable_and_asks_for_nothing():
     adapter = RecordingAdapter(response_template=TEMPLATE)
-    transcript = debate("vanilla", adapter)[0]
+    config = DebateConfig(
+        n_agents=3, n_rounds=1, confidence_mode="none", aggregation="majority", temperature=1.0
+    )
+    transcript = run_debate(QUESTIONS, config, adapter, render, extract, seed=0)[0]
     assert all(turn.confidence.reason is SignalNull.NOT_APPLICABLE for turn in transcript.turns)
+    assert all(turn.scores is None for turn in transcript.turns)
+    assert not adapter.scored
     prompts = [prompt for call_prompts, _ in adapter.calls for prompt in call_prompts]
     assert all(VERBALIZED_INSTRUCTION not in prompt for prompt in prompts)
+
+
+def test_token_mode_asks_for_nothing_and_stores_the_probability_of_the_given_answer():
+    adapter = RecordingAdapter(response_template=TEMPLATE)
+    transcripts = debate("vanilla", adapter)
+    prompts = [prompt for call_prompts, _ in adapter.calls for prompt in call_prompts]
+    assert all(VERBALIZED_INSTRUCTION not in prompt for prompt in prompts)
+    for turn in (turn for transcript in transcripts for turn in transcript.turns):
+        assert turn.scores is not None
+        assert turn.scores.choices == ("A", "B", "C", "D")
+        given = turn.scores.probabilities()["ABCD".index(turn.answer or "")]
+        assert turn.confidence.value == given
+
+
+def test_token_mode_scores_each_answer_letter_after_the_agent_own_reasoning():
+    adapter = RecordingAdapter(response_template=TEMPLATE)
+    transcripts = debate("vanilla", adapter, questions=QUESTIONS[:1])
+    assert len(adapter.scored) == 3
+    contexts, continuations = adapter.scored[0]
+    opening = adapter.calls[0][0][0]
+    assert contexts == [opening + "Answer:"] * 3
+    assert continuations == [[" A", " B", " C", " D"]] * 3
+    round_one_prompts = adapter.calls[1][0]
+    assert adapter.scored[1][0] == [prompt + "Answer:" for prompt in round_one_prompts]
+    assert len(transcripts[0].turns) == 9
+
+
+def test_token_mode_records_parse_failures_as_nulls_without_scoring():
+    adapter = RecordingAdapter(response_template="I would rather not say.")
+    transcript = debate("vanilla", adapter)[0]
+    assert all(turn.confidence.reason is SignalNull.PARSE_FAILED for turn in transcript.turns)
+    assert not adapter.scored
+    assert transcript.system.reason is SystemNull.NO_VALID_ANSWERS
+
+
+def test_token_mode_without_an_answer_locator_is_refused():
+    config = preset("vanilla", temperature=1.0)
+    with pytest.raises(ValueError, match="answer locator"):
+        run_debate(QUESTIONS, config, StubAdapter(), render, extract, seed=0)
 
 
 class ShortAdapter(StubAdapter):

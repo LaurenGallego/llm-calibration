@@ -192,7 +192,7 @@ def test_debate_signals_drop_logprob_signals_on_an_adapter_without_them():
 
 def test_an_unknown_confidence_mode_is_refused():
     with pytest.raises(KeyError, match="confidence mode"):
-        debate_signals(StubAdapter(), "token")
+        debate_signals(StubAdapter(), "nonexistent")
 
 
 def test_registered_signals_become_one_row_per_agent_turn(question, mmlu):

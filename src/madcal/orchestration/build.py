@@ -16,7 +16,7 @@ def build_adapter(config: ModelConfig) -> ModelAdapter:
 def build_benchmark(config: BenchmarkConfig) -> Benchmark:
     """Construct the benchmark this config names."""
     benchmark = benchmark_registry.get(config.name)
-    return benchmark(**config.model_dump(exclude={"name"}))
+    return benchmark(**config.model_dump(exclude={"name", "n_questions", "sample_seed"}))
 
 
 def build_renderer(config: PromptConfig, adapter: ModelAdapter) -> Renderer:

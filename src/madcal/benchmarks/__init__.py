@@ -13,6 +13,7 @@ from madcal.benchmarks.base import (
     answer_letter,
     benchmark_registry,
     choice_answer_instruction,
+    choice_answer_slot,
     extract_choice_letter,
     register_benchmark,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "answer_letter",
     "benchmark_registry",
     "choice_answer_instruction",
+    "choice_answer_slot",
     "extract_choice_letter",
     "register_benchmark",
 ]

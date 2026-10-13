@@ -13,8 +13,8 @@ PRESETS: dict[str, dict[str, Any]] = {
     "vanilla": {
         "n_agents": 3,
         "n_rounds": 2,
-        "confidence_mode": "none",
-        "aggregation": "majority",
+        "confidence_mode": "token",
+        "aggregation": "majority_probability",
     },
 }
 
