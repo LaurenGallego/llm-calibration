@@ -224,3 +224,8 @@ docs/
 # VSCode
 .vscode/
 .DS_Store
+
+# Run outputs
+results/
+logs/*
+!logs/.gitkeep

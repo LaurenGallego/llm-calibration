@@ -15,6 +15,9 @@ dependencies = [
     "transformers>=4.44",
 ]
 
+[project.scripts]
+madcal = "madcal.cli:main"
+
 [project.optional-dependencies]
 # vLLM is Linux/CUDA only -- it does not build on macOS, so it cannot be a core
 # dependency without breaking `uv sync` on the development machine.
