@@ -10,6 +10,12 @@ PRESETS: dict[str, dict[str, Any]] = {
         "confidence_mode": "verbalized",
         "aggregation": "argmax_confidence",
     },
+    "verbalized_mad": {
+        "n_agents": 3,
+        "n_rounds": 2,
+        "confidence_mode": "verbalized",
+        "aggregation": "argmax_confidence",
+    },
     "vanilla": {
         "n_agents": 3,
         "n_rounds": 2,
