@@ -23,7 +23,7 @@ from madcal.models import ChoiceScores, Generation, ModelAdapter
 from madcal.signals import Evidence, SignalNull, SignalValue
 
 PEER_HEADER = "These are the responses to the question from other agents:"
-PEER_TEMPLATE = "One agent response: ```{text}```"
+PEER_TEMPLATE = "One agent response:\n{text}"
 UPDATE_REQUEST = (
     "Using the reasoning from other agents as additional advice, give an updated answer. "
     "Examine your response and the other agents' responses step by step, and answer in "

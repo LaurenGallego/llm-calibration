@@ -92,7 +92,10 @@ def answer_letter(index: int) -> str:
 def choice_answer_instruction(n_choices: int) -> str:
     """Return the instruction asking for a final choice letter among `n_choices` options."""
     letters = ", ".join(_choice_letters(n_choices))
-    return f"State your final answer on its own line as 'Answer: X', where X is one of {letters}."
+    return (
+        "Think step by step, then state your final answer on its own line as 'Answer: X', "
+        f"where X is one of {letters}."
+    )
 
 
 def extract_choice_letter(response: str, n_choices: int) -> str | None:
@@ -120,10 +123,12 @@ def _last_choice_match(response: str, n_choices: int) -> re.Match[str] | None:
 def _choice_pattern(n_choices: int) -> re.Pattern[str]:
     letters = _choice_letters(n_choices)
     bold = r"(?:\*\*)?"
+    fence = r"`{0,3}"
     space = r"[ \t]*"
     letter = rf"\$?([{letters}])\$?"
     return re.compile(
-        rf"(?im)^{space}{bold}Answer{space}:{space}{bold}{space}{letter}{space}{bold}[ \t\r]*$"
+        rf"(?im)^{space}{fence}{bold}(?:Final{space})?Answer{space}:{space}{bold}{space}{letter}"
+        rf"{space}{bold}{fence}[ \t\r]*$"
     )
 
 

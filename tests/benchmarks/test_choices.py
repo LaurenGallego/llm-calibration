@@ -18,6 +18,12 @@ from madcal.benchmarks import choice_answer_instruction, choice_answer_slot, ext
         ("The correct answer is B.", None),
         ("Answer:\nB", None),
         ('My peer wrote "Answer: A".\nAnswer: C', "C"),
+        ("Thus, the correct answer is:\n```Answer: D```", "D"),
+        ("Reasoning.\n`Answer: D`", "D"),
+        ("Reasoning.\n**Final Answer: B**", "B"),
+        ("Reasoning.\nFinal Answer: B", "B"),
+        ("Reasoning.\nThe Final Answer: B", None),
+        ("```Answer: D``` is what I think", None),
     ],
 )
 def test_answer_must_sit_alone_on_its_line(response, expected):
@@ -43,7 +49,8 @@ def test_only_letters_valid_for_the_question_are_extracted(response, n_choices, 
 
 def test_instruction_lists_exactly_the_valid_letters():
     assert choice_answer_instruction(5) == (
-        "State your final answer on its own line as 'Answer: X', where X is one of A, B, C, D, E."
+        "Think step by step, then state your final answer on its own line as 'Answer: X', "
+        "where X is one of A, B, C, D, E."
     )
 
 
@@ -63,6 +70,8 @@ def test_choice_count_out_of_range_is_refused(n_choices):
         ("Reasoning.\n**Answer:** B", "Reasoning.\n**Answer:", "** "),
         ("Reasoning.\nAnswer: $B$", "Reasoning.\nAnswer:", " $"),
         ("Reasoning.\nAnswer:B", "Reasoning.\nAnswer:", ""),
+        ("Reasoning.\n```Answer: D```", "Reasoning.\n```Answer:", " "),
+        ("Reasoning.\n**Final Answer: B**", "Reasoning.\n**Final Answer:", " "),
         ("Answer: A\nOn reflection.\nAnswer: B", "Answer: A\nOn reflection.\nAnswer:", " "),
     ],
 )

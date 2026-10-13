@@ -122,7 +122,8 @@ def test_zero_shot_needs_no_pool():
 def test_answer_instruction_names_every_valid_letter(mmlu):
     question = mmlu.load()[0]
     assert mmlu.answer_instruction(question) == (
-        "State your final answer on its own line as 'Answer: X', where X is one of A, B, C, D."
+        "Think step by step, then state your final answer on its own line as 'Answer: X', "
+        "where X is one of A, B, C, D."
     )
 
 

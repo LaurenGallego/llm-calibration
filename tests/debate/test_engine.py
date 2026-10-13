@@ -135,10 +135,10 @@ def test_each_agent_sees_its_own_history_and_its_peers_latest_responses():
     assert agent_one.startswith("[user] Some question?")
     assert "[assistant] Answer: B r0a1" in agent_one
     assert "[assistant] Answer: B r1a1" in agent_one
-    assert "```Answer: A r1a0```" in agent_one
-    assert "```Answer: B r1a2```" in agent_one
-    assert "```Answer: B r1a1```" not in agent_one
-    assert "```Answer: A r0a0```" in agent_one
+    assert "One agent response:\nAnswer: A r1a0" in agent_one
+    assert "One agent response:\nAnswer: B r1a2" in agent_one
+    assert "One agent response:\nAnswer: B r1a1" not in agent_one
+    assert "One agent response:\nAnswer: A r0a0" in agent_one
     assert agent_one.index("r0a0") < agent_one.index("[assistant] Answer: B r1a1")
 
 
