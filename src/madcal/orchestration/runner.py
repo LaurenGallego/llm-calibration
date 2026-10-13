@@ -34,7 +34,8 @@ def run(config: RunConfig, store: ResultStore | None = None) -> RunOutcome:
             f"rows that cannot be traced to a checkpoint are not usable"
         )
 
-    config_hash = config.config_hash(adapter.revision)
+    code = code_sha()
+    config_hash = config.config_hash(adapter.revision, code)
     benchmark = build_benchmark(config.benchmark)
     renderer = build_renderer(config.prompt, adapter)
     debate_config = config.debate.resolve()
@@ -48,7 +49,7 @@ def run(config: RunConfig, store: ResultStore | None = None) -> RunOutcome:
     pending = [question for question in questions if question.id not in already]
 
     run_id = new_run_id()
-    manifest = _manifest(config, adapter, debate_config, len(questions), run_id, config_hash)
+    manifest = _manifest(config, adapter, debate_config, len(questions), run_id, config_hash, code)
     store.begin_run(manifest)
 
     written = 0
@@ -108,6 +109,7 @@ def _manifest(
     n_planned: int,
     run_id: str,
     config_hash: str,
+    code: str,
 ) -> RunManifest:
     if adapter.revision is None:
         raise ValueError("a manifest needs a resolved checkpoint revision")
@@ -126,7 +128,7 @@ def _manifest(
         max_tokens=debate_config.max_tokens,
         prompt_protocol=config.prompt.name,
         checkpoint_sha=adapter.revision,
-        code_sha=code_sha(),
+        code_sha=code,
         dtype=adapter.dtype,
         batch_size=adapter.batch_size,
         backend=adapter.name,

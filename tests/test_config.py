@@ -16,6 +16,7 @@ BASE = {
     "output_root": "results",
 }
 SHA = "a" * 40
+CODE = "c" * 40
 
 
 def build(**overrides) -> RunConfig:
@@ -28,15 +29,15 @@ def with_model(**overrides) -> RunConfig:
 
 
 def test_hash_is_stable():
-    assert build().config_hash(SHA) == build().config_hash(SHA)
+    assert build().config_hash(SHA, CODE) == build().config_hash(SHA, CODE)
 
 
 def test_environment_fields_do_not_move_the_hash():
-    reference = build().config_hash(SHA)
-    assert with_model(batch_size=64).config_hash(SHA) == reference
-    assert with_model(device="cpu").config_hash(SHA) == reference
-    assert build(output_root="/somewhere/else").config_hash(SHA) == reference
-    assert build(chunk_size=1).config_hash(SHA) == reference
+    reference = build().config_hash(SHA, CODE)
+    assert with_model(batch_size=64).config_hash(SHA, CODE) == reference
+    assert with_model(device="cpu").config_hash(SHA, CODE) == reference
+    assert build(output_root="/somewhere/else").config_hash(SHA, CODE) == reference
+    assert build(chunk_size=1).config_hash(SHA, CODE) == reference
 
 
 @pytest.mark.parametrize(
@@ -53,17 +54,21 @@ def test_environment_fields_do_not_move_the_hash():
     ],
 )
 def test_experimental_fields_move_the_hash(override):
-    assert build(**override).config_hash(SHA) != build().config_hash(SHA)
+    assert build(**override).config_hash(SHA, CODE) != build().config_hash(SHA, CODE)
 
 
 def test_dtype_moves_the_hash():
     # bf16 vs fp32 shifts logprobs in the third decimal, and ECE is a function of those.
-    assert with_model(dtype="float32").config_hash(SHA) != build().config_hash(SHA)
+    assert with_model(dtype="float32").config_hash(SHA, CODE) != build().config_hash(SHA, CODE)
 
 
 def test_resolved_checkpoint_moves_the_hash():
     # A run pinned to a branch name must not reuse rows from before the branch moved.
-    assert build().config_hash("sha-a") != build().config_hash("sha-b")
+    assert build().config_hash("sha-a", CODE) != build().config_hash("sha-b", CODE)
+
+
+def test_code_moves_the_hash():
+    assert build().config_hash(SHA, "code-a") != build().config_hash(SHA, "code-b")
 
 
 def test_a_benchmark_block_must_name_its_benchmark():
@@ -111,7 +116,7 @@ def test_a_run_cannot_be_narrowed_to_a_subset():
 def test_a_subsample_differs_from_the_same_size_subsample_under_another_seed():
     first = build(benchmark={"name": "mmlu", "n_questions": 500})
     second = build(benchmark={"name": "mmlu", "n_questions": 500, "sample_seed": 1})
-    assert first.config_hash(SHA) != second.config_hash(SHA)
+    assert first.config_hash(SHA, CODE) != second.config_hash(SHA, CODE)
 
 
 def test_a_subsample_must_hold_at_least_one_question():

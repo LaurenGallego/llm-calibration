@@ -128,19 +128,14 @@ class RunConfig(_Strict):
         self.debate.resolve()
         return self
 
-    def config_hash(self, checkpoint_sha: str) -> str:
-        """Identity of the experimental condition, for the storage resume key.
-
-        Takes the *resolved* checkpoint SHA rather than reading `revision` off the
-        config: a run pinned to a branch name must not reuse rows produced before that
-        branch moved. This is why the hash is computed after the adapter loads, not at
-        parse time.
-        """
+    def config_hash(self, checkpoint_sha: str, code_sha: str) -> str:
+        """Identity of the condition: this config, at this checkpoint, run by this code."""
         payload = self.model_dump(mode="json")
         for field in ENVIRONMENT_FIELDS:
             payload.pop(field, None)
             payload["model"].pop(field, None)
         payload["checkpoint_sha"] = checkpoint_sha
+        payload["code_sha"] = code_sha
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 

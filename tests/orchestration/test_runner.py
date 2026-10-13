@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from madcal.config import RunConfig
-from madcal.orchestration import run
+from madcal.orchestration import code_sha, run
 from madcal.storage import ResultStore, RunStatus
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "mmlu_sample.jsonl"
@@ -125,7 +125,7 @@ def test_a_failure_marks_the_run_failed_and_keeps_written_chunks(tmp_path, store
         run(config, store)
 
     assert store.incomplete_runs()
-    survivors = store.completed_questions(config.config_hash("stub"))
+    survivors = store.completed_questions(config.config_hash("stub", code_sha()))
     assert len(survivors) == config.chunk_size
     with store.connect() as connection:
         status = connection.execute("SELECT status, completed_at FROM runs").fetchone()
