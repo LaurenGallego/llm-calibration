@@ -33,10 +33,26 @@ Decisions this file implements, all recorded in `DEVLOG.md`:
 """
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from madcal.models.base import ChoiceScores, Generation, register_model_adapter
 
 DEFAULT_DTYPE = "bfloat16"
+
+
+def cached_commit_sha(model_id: str, revision: str | None) -> str:
+    """Return the commit SHA of the hub-cache snapshot that `revision` of `model_id` resolves to."""
+    from huggingface_hub import snapshot_download
+
+    try:
+        snapshot = snapshot_download(model_id, revision=revision, local_files_only=True)
+    except (ValueError, OSError) as error:
+        raise ValueError(
+            f"could not resolve a commit SHA for {model_id!r} at revision {revision!r}. "
+            f"A result that cannot be traced to an exact checkpoint is not usable; "
+            f"fetch it into the hub cache rather than loading a bare local path."
+        ) from error
+    return Path(snapshot).name
 
 
 @register_model_adapter("transformers")
@@ -70,13 +86,14 @@ class TransformersAdapter:
         # Read from the library that is actually loaded, never pinned in config: a
         # hardcoded string would keep reporting the version someone typed once.
         self.backend_version: str = transformers.__version__
+        self.revision: str | None = cached_commit_sha(model_id, revision)
 
         self._tokenizer = AutoTokenizer.from_pretrained(
-            model_id, revision=revision, local_files_only=True
+            model_id, revision=self.revision, local_files_only=True
         )
         self._model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            revision=revision,
+            revision=self.revision,
             dtype=getattr(torch, dtype),
             device_map=device,
             local_files_only=True,
@@ -85,17 +102,6 @@ class TransformersAdapter:
         # Mistral and Llama ship without a pad token; batching raises without one.
         if self._tokenizer.pad_token_id is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
-
-        # A row recording "main" does not trace to a checkpoint. `_commit_hash` is what
-        # transformers records for a hub load, and is available offline from the cache.
-        resolved = getattr(self._model.config, "_commit_hash", None)
-        if resolved is None:
-            raise ValueError(
-                f"could not resolve a commit SHA for {model_id!r} at revision "
-                f"{revision!r}. A result that cannot be traced to an exact checkpoint "
-                f"is not usable; load from a hub cache rather than a bare local path."
-            )
-        self.revision: str | None = resolved
 
     def score_choices(
         self,

@@ -17,6 +17,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from madcal.models import TransformersAdapter
+from madcal.models.transformers import cached_commit_sha
 
 TINY_MODEL = "sshleifer/tiny-gpt2"
 PROMPT = "What is 2+2?\nAnswer:"
@@ -198,3 +199,8 @@ def test_token_logprobs_align_with_tokens(adapter: TransformersAdapter):
     generated = adapter.generate([PROMPT], n=1, temperature=0.0, max_tokens=4)[0][0]
     assert generated.token_logprobs is not None
     assert all(math.isfinite(value) and value <= 0.0 for value in generated.token_logprobs)
+
+
+def test_a_checkpoint_missing_from_the_hub_cache_has_no_commit_sha():
+    with pytest.raises(ValueError, match="could not resolve a commit SHA"):
+        cached_commit_sha("madcal-test/not-in-any-cache", None)
