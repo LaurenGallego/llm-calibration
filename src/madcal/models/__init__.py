@@ -14,6 +14,7 @@ from madcal.models.base import (
     register_model_adapter,
 )
 from madcal.models.calibrated import CalibratedTransformersAdapter
+from madcal.models.nli import NLIJudge
 from madcal.models.stub import StubAdapter
 from madcal.models.transformers import TransformersAdapter
 
@@ -23,6 +24,7 @@ __all__ = [
     "ChoiceScores",
     "Generation",
     "ModelAdapter",
+    "NLIJudge",
     "StubAdapter",
     "TransformersAdapter",
     "model_adapter_registry",

@@ -27,22 +27,36 @@ from madcal.signals.entropy import (
     shannon_entropy,
 )
 from madcal.signals.likelihood import LengthNormalisedLikelihood
+from madcal.signals.semantic import (
+    MEASURES,
+    SampledAnswer,
+    SemanticConfidence,
+    cluster_answers,
+    cluster_distributions,
+    semantic_confidence,
+)
 from madcal.signals.verbalized import VerbalizedConfidence, parse_verbalized_confidence
 
 __all__ = [
+    "MEASURES",
     "Confidence",
     "ConfidenceEntropy",
     "Evidence",
     "LengthNormalisedLikelihood",
     "Requirements",
+    "SampledAnswer",
+    "SemanticConfidence",
     "Signal",
     "SignalNull",
     "SignalValue",
     "VerbalizedConfidence",
     "applicable",
+    "cluster_answers",
+    "cluster_distributions",
     "parse_verbalized_confidence",
     "register_signal",
     "residual_distribution",
+    "semantic_confidence",
     "shannon_entropy",
     "signal_registry",
     "sole_generation",
