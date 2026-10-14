@@ -109,6 +109,8 @@ def _fetch(config: RunConfig) -> None:
             revision=config.model.revision,
             ignore_patterns=["original/*", "*.pth"],
         )
+    if config.semantic is not None and config.semantic.nli_model is not None:
+        snapshot_download(config.semantic.nli_model, revision=config.semantic.nli_revision)
     benchmark = build_benchmark(config.benchmark)
     questions = benchmark.load()
     if config.prompt.n_shots:

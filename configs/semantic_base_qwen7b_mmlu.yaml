@@ -1,0 +1,17 @@
+model:
+  name: calibrated_transformers
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  variant: base
+  dtype: float16
+  batch_size: 8
+benchmark:
+  name: mmlu
+  n_questions: 2000
+  reasoning: false
+semantic:
+  n_samples: 10
+  max_tokens: 16
+  nli_model: null
+seed: 0
+chunk_size: 100
+output_root: results

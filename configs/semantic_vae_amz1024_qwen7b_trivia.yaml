@@ -1,0 +1,18 @@
+model:
+  name: calibrated_transformers
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  variant: vae
+  dtype: float16
+  batch_size: 8
+  vae_checkpoint: /lustre/uc3m/gts_c3_cluster_1-12/laurenga/calibration_models/vaeLLM md_qwen7b ds_amz lat_1024 lr_6 epRC_4000 epCL_2000 trnF_elb stpF_ece mem_100 trnM_VAE mc_5 beta_4.pth
+  vae_sha256: 765a6afe0239206c890ffc367c3d1f6b8b8a3402b0b731e26a0e28beb323c2fa
+  mc_samples: 5
+benchmark:
+  name: trivia_qa
+  n_questions: 2000
+semantic:
+  n_samples: 10
+  max_tokens: 16
+seed: 0
+chunk_size: 100
+output_root: results

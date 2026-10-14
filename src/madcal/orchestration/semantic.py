@@ -62,15 +62,57 @@ def semantic_chunk(
     )
     if len(references) != len(batch) or len(samples) != len(batch):
         raise RuntimeError("adapter returned a different number of results than prompts")
+    if any(len(reference) != 1 for reference in references):
+        raise RuntimeError("adapter returned more than one greedy reference for a prompt")
+    tokens = token_confidences(
+        batch, prompts, [reference[0] for reference in references], benchmark, adapter
+    )
     question_rows: list[QuestionRow] = []
     signal_rows: list[SignalRow] = []
-    for question, reference, sampled in zip(batch, references, samples, strict=True):
-        if len(reference) != 1 or len(sampled) != settings.n_samples:
+    for question, reference, sampled, token in zip(batch, references, samples, tokens, strict=True):
+        if len(sampled) != settings.n_samples:
             raise RuntimeError(f"adapter returned the wrong number of samples for {question.id!r}")
-        rows, values = semantic_rows(question, benchmark, reference[0], sampled, entails)
+        rows, values = semantic_rows(question, benchmark, reference[0], sampled, entails, token)
         question_rows.extend(rows)
         signal_rows.extend(values)
     return question_rows, signal_rows
+
+
+def token_confidences(
+    batch: Sequence[Question],
+    prompts: Sequence[str],
+    references: Sequence[Generation],
+    benchmark: Benchmark,
+    adapter: ModelAdapter,
+) -> list[SignalValue]:
+    """Return the probability of each reference's choice letter, scored at its answer slot."""
+    values = [SignalValue(None, SignalNull.NOT_APPLICABLE) for _ in batch]
+    requests: list[tuple[int, str, tuple[str, ...], tuple[str, ...], str]] = []
+    for index, (question, prompt, reference) in enumerate(
+        zip(batch, prompts, references, strict=True)
+    ):
+        if question.choices is None:
+            continue
+        n_choices = len(question.choices)
+        slot = benchmark.answer_slot(reference.text, n_choices)
+        answer = benchmark.extract_answer(reference.text, n_choices)
+        if slot is None or answer is None:
+            values[index] = SignalValue(None, SignalNull.PARSE_FAILED)
+            continue
+        context, lead, labels = slot
+        requests.append(
+            (index, prompt + context, tuple(lead + label for label in labels), labels, answer)
+        )
+    scored = (
+        adapter.score_choices([r[1] for r in requests], [r[2] for r in requests])
+        if requests
+        else []
+    )
+    if len(scored) != len(requests):
+        raise RuntimeError(f"adapter returned {len(scored)} scores for {len(requests)} answers")
+    for (index, _, _, labels, answer), scores in zip(requests, scored, strict=True):
+        values[index] = SignalValue(scores.probabilities()[labels.index(answer)])
+    return values
 
 
 def semantic_rows(
@@ -79,6 +121,7 @@ def semantic_rows(
     reference: Generation,
     samples: Sequence[Generation],
     entails: Entails | None,
+    token: SignalValue,
 ) -> tuple[list[QuestionRow], list[SignalRow]]:
     """Grade the reference and the samples, and compute every measure for the reference."""
     n_choices = len(question.choices) if question.choices is not None else None
@@ -115,6 +158,7 @@ def semantic_rows(
         )
     )
     values = _measures(question.body, predicted, answers, samples, entails)
+    values["token"] = token
     values["reference_truncated"] = SignalValue(float(reference.finish_reason == "length"))
     signals = [
         SignalRow(
