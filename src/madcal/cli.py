@@ -126,6 +126,8 @@ def _run(config: RunConfig) -> None:
 
 
 def _propagation(path: Path, config: RunConfig) -> None:
+    if config.debate is None:
+        raise ValueError(f"{path} is not a debate config; propagation reads debates only")
     frame = load_frame(ResultStore(config.output_root))
     condition = (
         (pc.field("model_slug") == model_slug(config.model.model_id))

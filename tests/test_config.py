@@ -161,3 +161,17 @@ def test_the_temperature_moves_the_hash():
     assert build(model=base).config_hash(SHA, CODE) != build(
         model={**base, "temperature": 1.11}
     ).config_hash(SHA, CODE)
+
+
+def test_the_nli_judge_checkpoint_moves_the_hash():
+    semantic = build(debate=None, semantic={"n_samples": 10})
+    first = semantic.config_hash(SHA, CODE, {"nli_sha": "1" * 40})
+    second = semantic.config_hash(SHA, CODE, {"nli_sha": "2" * 40})
+    assert first != second
+    assert first != semantic.config_hash(SHA, CODE)
+
+
+def test_the_sample_count_moves_the_hash():
+    ten = build(debate=None, semantic={"n_samples": 10}).config_hash(SHA, CODE)
+    twenty = build(debate=None, semantic={"n_samples": 20}).config_hash(SHA, CODE)
+    assert ten != twenty

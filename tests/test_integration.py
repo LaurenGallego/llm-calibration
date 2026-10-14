@@ -48,6 +48,7 @@ def stored(tmp_path: Path):
     outcome = run(config, store)
     assert outcome.status is RunStatus.COMPLETE
     assert outcome.n_written == len(questions)
+    assert config.debate is not None
     return store, questions, config.debate.resolve(), outcome
 
 
@@ -190,3 +191,64 @@ def test_an_open_answer_benchmark_runs_end_to_end_and_is_graded_by_alias(tmp_pat
         correct == benchmark.grade(questions[question_id], predicted)
         for question_id, _, _, predicted, correct in agent_rows
     )
+
+
+N_SAMPLES = 4
+
+
+def semantic_config(tmp_path: Path, benchmark: dict, template: str) -> RunConfig:
+    return RunConfig.model_validate(
+        {
+            "model": {"name": "stub", "response_template": template},
+            "benchmark": benchmark,
+            "prompt": {"name": "plain_chat"},
+            "semantic": {"n_samples": N_SAMPLES, "nli_model": None},
+            "chunk_size": CHUNK,
+            "output_root": str(tmp_path / "results"),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("benchmark", "template"),
+    [
+        ({"name": "trivia_qa", "source": str(TRIVIA_FIXTURE)}, "{letter}"),
+        ({"name": "mmlu", "source": str(FIXTURE), "reasoning": False}, "Answer: {letter}"),
+    ],
+)
+def test_a_semantic_run_stores_samples_a_graded_reference_and_every_measure(
+    tmp_path, benchmark, template
+):
+    config = semantic_config(tmp_path, benchmark, template)
+    store = ResultStore(config.output_root)
+    questions = list(build_benchmark(config.benchmark).load())
+    outcome = run(config, store)
+
+    assert outcome.status is RunStatus.COMPLETE
+    with store.connect() as connection:
+        levels = dict(
+            connection.execute("SELECT level, count(*) FROM questions GROUP BY level").fetchall()
+        )
+        measures = connection.execute(
+            "SELECT signal, count(*), count(value) FROM signals "
+            "WHERE level = 'system' AND signal = 'semantic_e_sc' GROUP BY signal"
+        ).fetchall()
+        protocol = connection.execute("SELECT DISTINCT protocol FROM runs").fetchall()
+        columns = {row[0] for row in connection.execute("DESCRIBE signals").fetchall()}
+    assert levels == {"agent": N_SAMPLES * len(questions), "system": len(questions)}
+    assert measures == [("semantic_e_sc", len(questions), len(questions))]
+    assert protocol == [("semantic",)]
+    assert not {"correct", "answer", "predicted"} & columns
+    assert run(config, store).n_skipped == len(questions)
+
+
+def test_a_run_names_exactly_one_protocol(tmp_path):
+    payload = semantic_config(
+        tmp_path, {"name": "trivia_qa", "source": str(TRIVIA_FIXTURE)}, "{letter}"
+    ).model_dump(mode="json")
+    with pytest.raises(ValueError, match="exactly one"):
+        RunConfig.model_validate(
+            {**payload, "debate": {"protocol": "best_of_n", "temperature": 1.0}}
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        RunConfig.model_validate({**payload, "semantic": None})

@@ -147,11 +147,19 @@ class DebateSettings(_Strict):
         return preset(self.protocol, **settings)
 
 
+class SemanticSettings(_Strict):
+    n_samples: int = Field(default=10, ge=2)
+    max_tokens: int = Field(default=16, ge=1)
+    nli_model: str | None = "microsoft/deberta-v2-xxlarge-mnli"
+    nli_revision: str | None = None
+
+
 class RunConfig(_Strict):
     model: ModelConfig
     benchmark: BenchmarkConfig = MMLUBenchmarkConfig()
     prompt: PromptConfig = PromptConfig()
-    debate: DebateSettings
+    debate: DebateSettings | None = None
+    semantic: SemanticSettings | None = None
     seed: int = 0
     # Questions per stored Parquet chunk. Smaller means a walltime kill loses less;
     # larger means fewer files. It changes nothing about the numbers, so it is an
@@ -160,13 +168,20 @@ class RunConfig(_Strict):
     output_root: Path
 
     @model_validator(mode="after")
-    def _debate_is_buildable(self) -> Self:
-        self.debate.resolve()
+    def _one_protocol_is_buildable(self) -> Self:
+        if (self.debate is None) == (self.semantic is None):
+            raise ValueError("a run needs exactly one of a debate or a semantic block")
+        if self.debate is not None:
+            self.debate.resolve()
         return self
 
-    def config_hash(self, checkpoint_sha: str, code_sha: str) -> str:
+    def config_hash(
+        self, checkpoint_sha: str, code_sha: str, extra: dict[str, str] | None = None
+    ) -> str:
         """Identity of the condition: this config, at this checkpoint, run by this code."""
         payload = self.model_dump(mode="json")
+        if extra:
+            payload["extra"] = extra
         for field in ENVIRONMENT_FIELDS:
             payload.pop(field, None)
             payload["model"].pop(field, None)

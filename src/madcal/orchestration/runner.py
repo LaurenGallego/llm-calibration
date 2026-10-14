@@ -4,13 +4,21 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from madcal.benchmarks import Benchmark, Question
-from madcal.config import RunConfig
+from madcal.config import RunConfig, SemanticSettings
 from madcal.debate import DebateConfig, Renderer, run_debate
 from madcal.models import ModelAdapter
 from madcal.orchestration.build import build_adapter, build_benchmark, build_renderer
 from madcal.orchestration.debate_inputs import debate_question
 from madcal.orchestration.provenance import code_sha, new_run_id
 from madcal.orchestration.rows import debate_signals, transcript_rows
+from madcal.orchestration.semantic import (
+    AGGREGATION,
+    CONFIDENCE_MODE,
+    PROTOCOL,
+    SAMPLING_TEMPERATURE,
+    build_judge,
+    semantic_chunk,
+)
 from madcal.signals import Signal
 from madcal.storage import QuestionRow, ResultStore, RunManifest, RunStatus, SignalRow
 
@@ -35,30 +43,56 @@ def run(config: RunConfig, store: ResultStore | None = None) -> RunOutcome:
         )
 
     code = code_sha()
-    config_hash = config.config_hash(adapter.revision, code)
     benchmark = build_benchmark(config.benchmark)
     renderer = build_renderer(config.prompt, adapter)
-    debate_config = config.debate.resolve()
-
-    signals = debate_signals(adapter, debate_config.confidence_mode)
-
     questions = list(
         benchmark.load(limit=config.benchmark.n_questions, seed=config.benchmark.sample_seed)
     )
+    run_id = new_run_id()
+
+    if config.semantic is not None:
+        settings = config.semantic
+        judge = build_judge(settings)
+        extra = {} if judge is None else {"nli_sha": str(judge.revision)}
+        config_hash = config.config_hash(adapter.revision, code, extra)
+        manifest = _semantic_manifest(
+            config, settings, adapter, len(questions), run_id, config_hash, code
+        )
+
+        def process(batch: Sequence[Question]) -> tuple[list[QuestionRow], list[SignalRow]]:
+            return semantic_chunk(batch, config, settings, adapter, benchmark, renderer, judge)
+
+    else:
+        if config.debate is None:
+            raise ValueError("a run needs a debate or a semantic block")
+        config_hash = config.config_hash(adapter.revision, code)
+        debate_config = config.debate.resolve()
+        signals = debate_signals(adapter, debate_config.confidence_mode)
+        manifest = _manifest(
+            config,
+            config.debate.protocol,
+            adapter,
+            debate_config,
+            len(questions),
+            run_id,
+            config_hash,
+            code,
+        )
+
+        def process(batch: Sequence[Question]) -> tuple[list[QuestionRow], list[SignalRow]]:
+            return _process_chunk(
+                batch, config, debate_config, adapter, benchmark, renderer, signals
+            )
+
     already = store.completed_questions(config_hash)
     pending = [question for question in questions if question.id not in already]
-
-    run_id = new_run_id()
-    manifest = _manifest(config, adapter, debate_config, len(questions), run_id, config_hash, code)
     store.begin_run(manifest)
 
     written = 0
     try:
         for seq, start in enumerate(range(0, len(pending), config.chunk_size)):
             batch = pending[start : start + config.chunk_size]
-            questions_rows, signal_rows = _process_chunk(
-                batch, config, debate_config, adapter, benchmark, renderer, signals
-            )
+            questions_rows, signal_rows = process(batch)
             store.write_chunk(manifest, questions_rows, signal_rows, seq=seq)
             written += len(batch)
     except Exception:
@@ -102,8 +136,46 @@ def _process_chunk(
     return question_rows, signal_rows
 
 
+def _semantic_manifest(
+    config: RunConfig,
+    settings: SemanticSettings,
+    adapter: ModelAdapter,
+    n_planned: int,
+    run_id: str,
+    config_hash: str,
+    code: str,
+) -> RunManifest:
+    if adapter.revision is None:
+        raise ValueError("a manifest needs a resolved checkpoint revision")
+    return RunManifest(
+        run_id=run_id,
+        config_hash=config_hash,
+        model_id=adapter.model_id,
+        variant=config.model.variant,
+        benchmark=config.benchmark.name,
+        protocol=PROTOCOL,
+        n_agents=settings.n_samples,
+        n_rounds=0,
+        confidence_mode=CONFIDENCE_MODE,
+        aggregation=AGGREGATION,
+        temperature=SAMPLING_TEMPERATURE,
+        max_tokens=settings.max_tokens,
+        prompt_protocol=config.prompt.name,
+        checkpoint_sha=adapter.revision,
+        code_sha=code,
+        dtype=adapter.dtype,
+        batch_size=adapter.batch_size,
+        backend=adapter.name,
+        backend_version=adapter.backend_version,
+        n_questions_planned=n_planned,
+        benchmark_revision=config.benchmark.revision,
+        seed=config.seed,
+    )
+
+
 def _manifest(
     config: RunConfig,
+    protocol: str,
     adapter: ModelAdapter,
     debate_config: DebateConfig,
     n_planned: int,
@@ -119,7 +191,7 @@ def _manifest(
         model_id=adapter.model_id,
         variant=config.model.variant,
         benchmark=config.benchmark.name,
-        protocol=config.debate.protocol,
+        protocol=protocol,
         n_agents=debate_config.n_agents,
         n_rounds=debate_config.n_rounds,
         confidence_mode=debate_config.confidence_mode,

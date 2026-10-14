@@ -29,6 +29,7 @@ from madcal.signals.entropy import (
 from madcal.signals.likelihood import LengthNormalisedLikelihood
 from madcal.signals.semantic import (
     MEASURES,
+    Entails,
     SampledAnswer,
     SemanticConfidence,
     cluster_answers,
@@ -41,6 +42,7 @@ __all__ = [
     "MEASURES",
     "Confidence",
     "ConfidenceEntropy",
+    "Entails",
     "Evidence",
     "LengthNormalisedLikelihood",
     "Requirements",
