@@ -27,7 +27,7 @@ from madcal.storage import Variant
 
 # Fields recorded per row and verified by analysis rather than hashed into the identity
 # of the condition.
-ENVIRONMENT_FIELDS = ("batch_size", "chunk_size", "device", "output_root")
+ENVIRONMENT_FIELDS = ("batch_size", "chunk_size", "device", "output_root", "vae_checkpoint")
 
 
 class _Strict(BaseModel):
@@ -57,13 +57,37 @@ class TransformersModelConfig(_Strict):
     batch_size: int = Field(default=8, ge=1)
 
 
+class CalibratedTransformersModelConfig(_Strict):
+    name: Literal["calibrated_transformers"] = "calibrated_transformers"
+    model_id: str
+    variant: Variant
+    revision: str | None = None
+    dtype: str = "bfloat16"
+    device: str = "auto"
+    batch_size: int = Field(default=8, ge=1)
+    temperature: float = Field(default=1.0, gt=0.0)
+    vae_checkpoint: Path | None = None
+    vae_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    mc_samples: int = Field(default=5, ge=1)
+    noise_seed: int = 0
+
+    @model_validator(mode="after")
+    def _variant_matches_the_head(self) -> Self:
+        if (self.vae_checkpoint is None) != (self.vae_sha256 is None):
+            raise ValueError("vae_checkpoint and vae_sha256 must be given together")
+        expected = Variant.BASE if self.vae_checkpoint is None else Variant.VAE
+        if self.variant is not expected:
+            raise ValueError(f"variant must be {expected!r} for this head, got {self.variant!r}")
+        return self
+
+
 # A discriminated union rather than one class with a passthrough dict: the adapters take
 # genuinely different constructor arguments, and `extra="forbid"` on each arm is what
 # makes `dtype: float16` on the stub an error instead of a silently ignored setting.
 # This is the one place adding an adapter means editing a shared file -- acceptable
 # because adapters are few, unlike signals, which stay purely registry-driven.
 ModelConfig = Annotated[
-    StubModelConfig | TransformersModelConfig,
+    StubModelConfig | TransformersModelConfig | CalibratedTransformersModelConfig,
     Field(discriminator="name"),
 ]
 

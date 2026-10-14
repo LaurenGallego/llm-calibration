@@ -124,3 +124,40 @@ def test_a_subsample_differs_from_the_same_size_subsample_under_another_seed():
 def test_a_subsample_must_hold_at_least_one_question():
     with pytest.raises(ValidationError, match="n_questions"):
         build(benchmark={"name": "mmlu", "n_questions": 0})
+
+
+CALIBRATED = {"name": "calibrated_transformers", "model_id": "Qwen/Qwen2.5-7B-Instruct"}
+DIGEST = "ab" * 32
+
+
+def test_a_calibrated_head_without_a_vae_is_the_base_variant():
+    assert build(model={**CALIBRATED, "variant": "base"}).model.variant == "base"
+    with pytest.raises(ValidationError, match="variant"):
+        build(model={**CALIBRATED, "variant": "vae"})
+
+
+def test_a_vae_checkpoint_needs_its_sha256_and_the_vae_variant():
+    vae = {**CALIBRATED, "variant": "vae", "vae_checkpoint": "/models/vae.pth"}
+    assert build(model={**vae, "vae_sha256": DIGEST}).model.variant == "vae"
+    with pytest.raises(ValidationError, match="together"):
+        build(model=vae)
+    with pytest.raises(ValidationError, match="variant"):
+        build(model={**vae, "vae_sha256": DIGEST, "variant": "base"})
+
+
+def test_the_vae_is_identified_by_its_sha256_not_its_path():
+    vae = {**CALIBRATED, "variant": "vae", "vae_sha256": DIGEST}
+    here = build(model={**vae, "vae_checkpoint": "/a/vae.pth"}).config_hash(SHA, CODE)
+    there = build(model={**vae, "vae_checkpoint": "/b/vae.pth"}).config_hash(SHA, CODE)
+    other = build(
+        model={**vae, "vae_checkpoint": "/a/vae.pth", "vae_sha256": "cd" * 32}
+    ).config_hash(SHA, CODE)
+    assert here == there
+    assert here != other
+
+
+def test_the_temperature_moves_the_hash():
+    base = {**CALIBRATED, "variant": "base"}
+    assert build(model=base).config_hash(SHA, CODE) != build(
+        model={**base, "temperature": 1.11}
+    ).config_hash(SHA, CODE)

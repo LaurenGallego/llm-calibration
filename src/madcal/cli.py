@@ -21,7 +21,7 @@ from madcal.analysis import (
     propagation_table,
     to_arrow,
 )
-from madcal.config import RunConfig, TransformersModelConfig
+from madcal.config import CalibratedTransformersModelConfig, RunConfig, TransformersModelConfig
 from madcal.orchestration import build_benchmark, run
 from madcal.storage import ResultStore, model_slug
 
@@ -103,7 +103,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 def _fetch(config: RunConfig) -> None:
     from huggingface_hub import snapshot_download
 
-    if isinstance(config.model, TransformersModelConfig):
+    if isinstance(config.model, TransformersModelConfig | CalibratedTransformersModelConfig):
         snapshot_download(
             config.model.model_id,
             revision=config.model.revision,

@@ -13,11 +13,13 @@ from madcal.models.base import (
     model_adapter_registry,
     register_model_adapter,
 )
+from madcal.models.calibrated import CalibratedTransformersAdapter
 from madcal.models.stub import StubAdapter
 from madcal.models.transformers import TransformersAdapter
 
 __all__ = [
     "PROBABILITY_TOLERANCE",
+    "CalibratedTransformersAdapter",
     "ChoiceScores",
     "Generation",
     "ModelAdapter",
