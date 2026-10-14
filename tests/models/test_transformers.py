@@ -17,7 +17,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from madcal.models import TransformersAdapter
-from madcal.models.transformers import cached_commit_sha, sampled_logprobs
+from madcal.models.transformers import cached_commit_sha, sampled_logprobs, stop_token_ids
 
 TINY_MODEL = "sshleifer/tiny-gpt2"
 PROMPT = "What is 2+2?\nAnswer:"
@@ -225,3 +225,33 @@ def test_sampled_logprobs_equal_the_library_transition_scores(adapter: Transform
         out.sequences, out.scores, normalize_logits=True
     )
     assert torch.allclose(sampled_logprobs(out.scores, new_ids), expected)
+
+
+def test_sampling_at_temperature_one_draws_from_the_model_not_its_generation_defaults(reference):
+    adapter = TransformersAdapter(model_id=TINY_MODEL, dtype="float32", device="cpu", batch_size=4)
+    adapter._model.generation_config.top_k = 1
+    adapter._model.generation_config.top_p = 0.5
+    adapter._model.generation_config.repetition_penalty = 3.0
+    samples = adapter.generate([PROMPT], n=4, temperature=1.0, max_tokens=5, seed=0)[0]
+    tokenizer, model = reference
+    prompt_ids = tokenizer(PROMPT)["input_ids"]
+    assert len({sample.text for sample in samples}) > 1
+    for sample in samples:
+        assert sample.tokens is not None and sample.token_logprobs is not None
+        ids = prompt_ids + tokenizer.convert_tokens_to_ids(list(sample.tokens))
+        with torch.no_grad():
+            logits = model(torch.tensor([ids])).logits[0].float()
+        logprobs = torch.log_softmax(logits, dim=-1)
+        expected = [
+            float(logprobs[len(prompt_ids) + index - 1, token])
+            for index, token in enumerate(ids[len(prompt_ids) :])
+        ]
+        assert sample.token_logprobs == pytest.approx(expected, abs=1e-4)
+
+
+def test_stop_tokens_are_the_tokenizer_eos_and_every_model_eos():
+    assert stop_token_ids(2, [5, 7]) == frozenset({2, 5, 7})
+    assert stop_token_ids(None, 5) == frozenset({5})
+    assert stop_token_ids(2, None) == frozenset({2})
+    with pytest.raises(ValueError, match="no end-of-sequence"):
+        stop_token_ids(None, None)

@@ -69,6 +69,24 @@ def sampled_logprobs(scores: Sequence[Any], tokens: Any) -> Any:
     )
 
 
+def stop_token_ids(
+    tokenizer_eos: int | None, generation_eos: int | Sequence[int] | None
+) -> frozenset[int]:
+    """Return every token id that ends a generation: the tokenizer's EOS and the model's."""
+    ids = (
+        []
+        if generation_eos is None
+        else [generation_eos]
+        if isinstance(generation_eos, int)
+        else list(generation_eos)
+    )
+    if tokenizer_eos is not None:
+        ids.append(tokenizer_eos)
+    if not ids:
+        raise ValueError("the model declares no end-of-sequence token; generation could never stop")
+    return frozenset(ids)
+
+
 @register_model_adapter("transformers")
 class TransformersAdapter:
     name = "transformers"
@@ -116,6 +134,9 @@ class TransformersAdapter:
         # Mistral and Llama ship without a pad token; batching raises without one.
         if self._tokenizer.pad_token_id is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
+        self._stop_ids = stop_token_ids(
+            self._tokenizer.eos_token_id, self._model.generation_config.eos_token_id
+        )
 
     def score_choices(
         self,
@@ -269,6 +290,10 @@ class TransformersAdapter:
             "output_scores": True,
             "do_sample": temperature > 0.0,
             "pad_token_id": self._tokenizer.pad_token_id,
+            "eos_token_id": sorted(self._stop_ids),
+            "top_k": 0,
+            "top_p": 1.0,
+            "repetition_penalty": 1.0,
         }
         if temperature > 0.0:
             options["temperature"] = temperature
@@ -287,8 +312,6 @@ class TransformersAdapter:
         transition = sampled_logprobs(out.scores, new_ids).cpu()
         del out
 
-        eos_id = self._tokenizer.eos_token_id
-
         # generate returns prompts * n sequences, prompt-major.
         grouped: list[list[Generation]] = []
         for prompt_index in range(len(prompts)):
@@ -296,8 +319,9 @@ class TransformersAdapter:
             for sample_index in range(n):
                 row = prompt_index * n + sample_index
                 ids = [int(token) for token in new_ids[row]]
-                if eos_id is not None and eos_id in ids:
-                    length = ids.index(eos_id) + 1
+                stops = [index for index, token in enumerate(ids) if token in self._stop_ids]
+                if stops:
+                    length = stops[0] + 1
                     finish_reason = "stop"
                 else:
                     length = len(ids)
