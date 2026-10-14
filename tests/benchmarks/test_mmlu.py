@@ -127,6 +127,18 @@ def test_answer_instruction_names_every_valid_letter(mmlu):
     )
 
 
+def test_direct_answer_instruction_asks_for_the_letter_alone():
+    question = MMLU(source=FIXTURE, reasoning=False).load()[0]
+    assert MMLU(source=FIXTURE, reasoning=False).answer_instruction(question) == (
+        "Respond with only your final answer on a single line as 'Answer: X', where X is one "
+        "of A, B, C, D. Do not explain or reason."
+    )
+
+
+def test_direct_answer_is_extracted_like_a_reasoned_one():
+    assert MMLU(source=FIXTURE, reasoning=False).extract_answer("Answer: C", 4) == "C"
+
+
 def test_extraction_without_a_choice_count_is_refused(mmlu):
     with pytest.raises(ValueError, match="n_choices"):
         mmlu.extract_answer("Answer: A", None)

@@ -8,6 +8,7 @@ from madcal.orchestration import build_benchmark, run
 from madcal.storage import AGENT_CONFIDENCE, SYSTEM_CONFIDENCE, ResultStore, RunStatus
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mmlu_sample.jsonl"
+TRIVIA_FIXTURE = Path(__file__).parent / "fixtures" / "trivia_qa_sample.jsonl"
 TEMPLATE = "Answer: {letter}\nConfidence: {confidence}%"
 N_AGENTS = 3
 CHUNK = 2
@@ -159,3 +160,33 @@ def test_no_signal_row_names_the_confidence_mode_signal_as_well_as_its_column(st
         ).fetchone()
     assert duplicated is not None
     assert duplicated[0] == 0
+
+
+def test_an_open_answer_benchmark_runs_end_to_end_and_is_graded_by_alias(tmp_path):
+    config = RunConfig.model_validate(
+        {
+            "model": {"name": "stub", "response_template": "{letter}\nConfidence: {confidence}%"},
+            "benchmark": {"name": "trivia_qa", "source": str(TRIVIA_FIXTURE)},
+            "prompt": {"name": "plain_chat"},
+            "debate": {"protocol": "best_of_n", "temperature": 1.0, "n_agents": N_AGENTS},
+            "output_root": str(tmp_path / "results"),
+        }
+    )
+    store = ResultStore(config.output_root)
+    benchmark = build_benchmark(config.benchmark)
+    questions = {question.id: question for question in benchmark.load()}
+    outcome = run(config, store)
+
+    assert outcome.status is RunStatus.COMPLETE
+    with store.connect() as connection:
+        rows = connection.execute(
+            "SELECT question_id, level, task_format, predicted, correct FROM questions"
+        ).fetchall()
+    assert len(rows) == len(questions) * (N_AGENTS + 1)
+    assert {task_format for _, _, task_format, _, _ in rows} == {"open"}
+    agent_rows = [row for row in rows if row[1] == "agent"]
+    assert {predicted for _, _, _, predicted, _ in agent_rows} <= set("ABCD")
+    assert all(
+        correct == benchmark.grade(questions[question_id], predicted)
+        for question_id, _, _, predicted, correct in agent_rows
+    )

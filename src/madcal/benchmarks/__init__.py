@@ -14,10 +14,13 @@ from madcal.benchmarks.base import (
     benchmark_registry,
     choice_answer_instruction,
     choice_answer_slot,
+    direct_answer_instruction,
     extract_choice_letter,
+    normalize_answer,
     register_benchmark,
 )
 from madcal.benchmarks.mmlu import MMLU
+from madcal.benchmarks.trivia_qa import TriviaQA
 
 __all__ = [
     "LETTERS",
@@ -25,10 +28,13 @@ __all__ = [
     "Benchmark",
     "Question",
     "TaskFormat",
+    "TriviaQA",
     "answer_letter",
     "benchmark_registry",
     "choice_answer_instruction",
     "choice_answer_slot",
+    "direct_answer_instruction",
     "extract_choice_letter",
+    "normalize_answer",
     "register_benchmark",
 ]

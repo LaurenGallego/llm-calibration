@@ -1,5 +1,4 @@
 import json
-import random
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,8 +8,10 @@ from madcal.benchmarks.base import (
     answer_letter,
     choice_answer_instruction,
     choice_answer_slot,
+    direct_answer_instruction,
     extract_choice_letter,
     register_benchmark,
+    sample_questions,
 )
 
 HF_DATASET = "cais/mmlu"
@@ -30,6 +31,7 @@ class MMLU:
         revision: str | None = None,
         exemplar_source: Path | None = None,
         exemplar_split: str = "dev",
+        reasoning: bool = True,
     ) -> None:
         self.subjects = tuple(subjects) if subjects is not None else None
         self.source = source
@@ -40,16 +42,12 @@ class MMLU:
         # protocol, and varying it silently changes what the benchmark measures.
         self.exemplar_source = exemplar_source
         self.exemplar_split = exemplar_split
+        self.reasoning = reasoning
         self._questions: list[Question] | None = None
         self._exemplars: dict[str, tuple[Question, ...]] | None = None
 
     def load(self, limit: int | None = None, seed: int | None = None) -> Sequence[Question]:
-        questions = self._all_questions()
-        if limit is None or limit >= len(questions):
-            return list(questions)
-        if seed is None:
-            return questions[:limit]
-        return sorted(random.Random(seed).sample(questions, limit), key=lambda q: q.id)
+        return sample_questions(self._all_questions(), limit, seed)
 
     def exemplars(self, question: Question, n_shots: int) -> Sequence[Question]:
         if n_shots < 0:
@@ -69,7 +67,9 @@ class MMLU:
     def answer_instruction(self, question: Question) -> str:
         if question.choices is None:
             raise ValueError(f"MMLU question {question.id!r} has no choices")
-        return choice_answer_instruction(len(question.choices))
+        if self.reasoning:
+            return choice_answer_instruction(len(question.choices))
+        return direct_answer_instruction(len(question.choices))
 
     def extract_answer(self, response: str, n_choices: int | None) -> str | None:
         if n_choices is None:

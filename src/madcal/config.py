@@ -76,15 +76,27 @@ class MMLUBenchmarkConfig(_Strict):
     exemplar_source: Path | None = None
     n_questions: int | None = Field(default=None, ge=1)
     sample_seed: int = 0
+    reasoning: bool = True
 
 
-# One arm today; adding a benchmark adds an arm rather than widening a shared class.
+class TriviaQABenchmarkConfig(_Strict):
+    name: Literal["trivia_qa"] = "trivia_qa"
+    revision: str | None = None
+    source: Path | None = None
+    exemplar_source: Path | None = None
+    n_questions: int | None = Field(default=None, ge=1)
+    sample_seed: int = 0
+
+
+# Adding a benchmark adds an arm rather than widening a shared class.
 # Everything specific to running a benchmark as published -- which split is canonical,
 # where its few-shot pool comes from, how many shots it supports -- lives on the
 # benchmark class, not here. There is deliberately no `limit` or subject filter: a run
 # is the full benchmark, and topic shards are cut from the stored `subject` column by
 # `analysis/`, not by narrowing what was executed.
-BenchmarkConfig = Annotated[MMLUBenchmarkConfig, Field(discriminator="name")]
+BenchmarkConfig = Annotated[
+    MMLUBenchmarkConfig | TriviaQABenchmarkConfig, Field(discriminator="name")
+]
 
 
 class PromptConfig(_Strict):

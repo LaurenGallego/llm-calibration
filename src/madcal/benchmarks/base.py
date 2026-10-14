@@ -14,7 +14,9 @@ Contracts implementations must honour, since neither is expressible in a signatu
   is too small rather than rendering a shorter prompt than the config asked for.
 """
 
+import random
 import re
+import string
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -30,6 +32,7 @@ LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 class TaskFormat(StrEnum):
     MCQ = "mcq"
     MATH = "math"
+    OPEN = "open"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +43,7 @@ class Question:
     answer: str
     task_format: TaskFormat
     choices: tuple[str, ...] | None = None
+    aliases: tuple[str, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
@@ -53,6 +57,8 @@ class Question:
             )
         if self.choices is None and not self.answer:
             raise ValueError("Question answer cannot be empty when choices are not provided")
+        if self.task_format is TaskFormat.OPEN and self.answer not in self.aliases:
+            raise ValueError("an open question's answer must be one of its aliases")
 
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
@@ -83,6 +89,28 @@ def register_benchmark(name: str):
     return benchmark_registry.register(name)
 
 
+def sample_questions(
+    questions: Sequence[Question], limit: int | None, seed: int | None
+) -> list[Question]:
+    """Return all questions, the first `limit`, or a seeded sample of `limit` sorted by id."""
+    if limit is None or limit >= len(questions):
+        return list(questions)
+    if seed is None:
+        return list(questions[:limit])
+    return sorted(random.Random(seed).sample(list(questions), limit), key=lambda q: q.id)
+
+
+def normalize_answer(text: str) -> str:
+    """Return `text` normalised as the official TriviaQA evaluation script does."""
+    text = text.replace("_", " ").lower()
+    text = "".join(" " if char in _PUNCTUATION else char for char in text)
+    text = re.sub(r"\b(a|an|the)\b", " ", text)
+    return " ".join(text.split())
+
+
+_PUNCTUATION = frozenset(string.punctuation + "\u2018\u2019\u00b4`")
+
+
 def answer_letter(index: int) -> str:
     if index < 0 or index >= len(LETTERS):
         raise ValueError(f"Index must be between 0 and {len(LETTERS) - 1}, got {index}")
@@ -95,6 +123,15 @@ def choice_answer_instruction(n_choices: int) -> str:
     return (
         "Think step by step, then state your final answer on its own line as 'Answer: X', "
         f"where X is one of {letters}."
+    )
+
+
+def direct_answer_instruction(n_choices: int) -> str:
+    """Return the instruction asking for the choice letter alone, with no reasoning."""
+    letters = ", ".join(_choice_letters(n_choices))
+    return (
+        f"Respond with only your final answer on a single line as 'Answer: X', where X is one "
+        f"of {letters}. Do not explain or reason."
     )
 
 

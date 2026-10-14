@@ -48,6 +48,8 @@ def test_environment_fields_do_not_move_the_hash():
         {"benchmark": {"name": "mmlu", "revision": "abc123"}},
         {"benchmark": {"name": "mmlu", "n_questions": 500}},
         {"benchmark": {"name": "mmlu", "n_questions": 500, "sample_seed": 1}},
+        {"benchmark": {"name": "mmlu", "reasoning": False}},
+        {"benchmark": {"name": "trivia_qa"}},
         {"debate": {"protocol": "vanilla", "temperature": 0.7}},
         {"debate": {"protocol": "best_of_n", "temperature": 1.0, "n_agents": 3}},
         {"debate": {"protocol": "vanilla", "temperature": 1.0, "max_tokens": 256}},
