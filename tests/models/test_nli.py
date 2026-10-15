@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -60,3 +62,19 @@ def test_batching_does_not_change_verdicts(judge):
 
 def test_the_revision_is_a_commit_sha(judge):
     assert judge.revision is not None and len(judge.revision) == 40
+
+
+def test_a_sentencepiece_only_tokenizer_loads_and_matches_sentencepiece(tmp_path):
+    import shutil
+
+    import sentencepiece
+    from huggingface_hub import snapshot_download
+
+    snapshot = Path(snapshot_download(NLI_MODEL, local_files_only=True))
+    for name in ("config.json", "spm.model"):
+        shutil.copy(snapshot / name, tmp_path / name)
+    (tmp_path / "tokenizer_config.json").write_text('{"do_lower_case": false, "vocab_type": "spm"}')
+    tokenizer = AutoTokenizer.from_pretrained(tmp_path)
+    reference = sentencepiece.SentencePieceProcessor(model_file=str(tmp_path / "spm.model"))
+    for text in ("Who wrote Hamlet? William Shakespeare", "£340m Aviva Stadium, naïve café"):
+        assert tokenizer.tokenize(text) == reference.encode(text, out_type=str)

@@ -13,6 +13,8 @@ dependencies = [
     "accelerate>=0.30",
     "torch>=2.4",
     "transformers>=4.44",
+    "sentencepiece>=0.2.2",
+    "protobuf>=6.33.6",
 ]
 
 [project.scripts]
