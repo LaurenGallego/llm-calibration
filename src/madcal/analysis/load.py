@@ -4,7 +4,13 @@ from dataclasses import dataclass
 
 import pyarrow as pa
 
-from madcal.storage import AGENT_CONFIDENCE, SYSTEM_CONFIDENCE, ResultStore, Variant
+from madcal.storage import (
+    AGENT_CONFIDENCE,
+    SEMANTIC_PROTOCOL,
+    SYSTEM_CONFIDENCE,
+    ResultStore,
+    Variant,
+)
 
 ANSWER_POLICY = "score_unparsed_incorrect"
 CALIBRATION_POLICY = "drop_without_confidence"
@@ -13,7 +19,8 @@ CELL_KEYS = ("model_slug", "variant", "protocol", "benchmark", "level", "agent_i
 
 FRAME_QUERY = """
 WITH readable AS (
-    SELECT run_id FROM runs WHERE status = 'complete' AND completed_at IS NOT NULL
+    SELECT run_id FROM runs
+    WHERE status = 'complete' AND completed_at IS NOT NULL AND protocol <> $semantic
 )
 SELECT
     q.model_slug,
@@ -46,7 +53,8 @@ ORDER BY q.model_slug, q.variant, q.protocol, q.benchmark,
 GRADED_COUNT_QUERY = """
 SELECT count(*) FROM questions q
 WHERE q.run_id IN (
-    SELECT run_id FROM runs WHERE status = 'complete' AND completed_at IS NOT NULL
+    SELECT run_id FROM runs
+    WHERE status = 'complete' AND completed_at IS NOT NULL AND protocol <> $semantic
 )
 """
 
@@ -63,12 +71,13 @@ def load_frame(store: ResultStore, allow_stub: bool = False) -> AnalysisFrame:
     """Return the joined frame, refusing unfinished runs and, unless asked, stub rows."""
     excluded = tuple(store.incomplete_runs())
     with store.connect() as connection:
-        if not _has_views(connection, "runs", "questions", "signals"):
+        if not has_views(connection, "runs", "questions", "signals"):
             return AnalysisFrame(rows=_empty_frame(), excluded_runs=excluded)
         rows = connection.execute(
-            FRAME_QUERY, {"agent": AGENT_CONFIDENCE, "system": SYSTEM_CONFIDENCE}
+            FRAME_QUERY,
+            {"agent": AGENT_CONFIDENCE, "system": SYSTEM_CONFIDENCE, "semantic": SEMANTIC_PROTOCOL},
         ).to_arrow_table()
-        graded = connection.execute(GRADED_COUNT_QUERY).fetchone()
+        graded = connection.execute(GRADED_COUNT_QUERY, {"semantic": SEMANTIC_PROTOCOL}).fetchone()
 
     _check_join_is_one_to_one(rows, 0 if graded is None else int(graded[0]))
     _check_every_graded_row_has_a_confidence_row(rows)
@@ -77,7 +86,8 @@ def load_frame(store: ResultStore, allow_stub: bool = False) -> AnalysisFrame:
     return AnalysisFrame(rows=rows.drop_columns(["has_confidence_row"]), excluded_runs=excluded)
 
 
-def _has_views(connection, *names: str) -> bool:
+def has_views(connection, *names: str) -> bool:
+    """Return whether the store exposes every named table."""
     present = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
     return all(name in present for name in names)
 

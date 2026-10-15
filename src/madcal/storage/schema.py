@@ -39,6 +39,7 @@ class AnswerNull(StrEnum):
 
 
 AGENT_CONFIDENCE = "stated_confidence"
+SEMANTIC_PROTOCOL = "semantic"
 SYSTEM_CONFIDENCE = "system_confidence"
 
 AGENT_NULLS = frozenset({AnswerNull.PARSE_FAILED})

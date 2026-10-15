@@ -76,7 +76,7 @@ def propagation_rows(
     rows: list[PropagationRow] = []
     for condition, records in _conditions(frame).items():
         levels = propagation_levels(records, labels)
-        metrics = _metrics()
+        metrics = confidence_metrics()
         for name in LEVELS:
             for metric, compute in metrics.items():
                 estimate = bootstrap_by_question(
@@ -173,7 +173,8 @@ def _pooled_level(records: Sequence[Mapping[str, object]], labels: Labels) -> Le
 type Compute = Callable[[NDArray[np.bool_], NDArray[np.float64]], float]
 
 
-def _metrics() -> dict[str, Compute]:
+def confidence_metrics() -> dict[str, Compute]:
+    """Return accuracy, mean confidence and every registered calibration metric."""
     metrics: dict[str, Compute] = {
         ACCURACY: lambda correct, _: _mean(correct),
         MEAN_CONFIDENCE: lambda _, confidence: _mean(confidence[~np.isnan(confidence)]),

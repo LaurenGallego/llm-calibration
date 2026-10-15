@@ -15,9 +15,9 @@ from madcal.signals import (
     SignalValue,
     semantic_confidence,
 )
-from madcal.storage import AnswerNull, Level, QuestionRow, SignalKind, SignalRow
+from madcal.storage import SEMANTIC_PROTOCOL, AnswerNull, Level, QuestionRow, SignalKind, SignalRow
 
-PROTOCOL = "semantic"
+PROTOCOL = SEMANTIC_PROTOCOL
 AGGREGATION = "greedy_reference"
 CONFIDENCE_MODE = "none"
 SAMPLING_TEMPERATURE = 1.0

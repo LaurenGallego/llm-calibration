@@ -16,9 +16,13 @@ from madcal.analysis import (
     ANALYSIS_STATUS,
     AnalysisFrame,
     build_report,
+    load_arms,
     load_frame,
     propagation_rows,
     propagation_table,
+    references,
+    semantic_rows,
+    semantic_table,
     to_arrow,
 )
 from madcal.config import CalibratedTransformersModelConfig, RunConfig, TransformersModelConfig
@@ -73,9 +77,15 @@ def _smi(*query: str) -> str:
 def main(argv: Sequence[str] | None = None) -> None:
     """Fetch, run or trace propagation for every config named, or report on a results root."""
     parser = argparse.ArgumentParser(prog="madcal")
-    parser.add_argument("command", choices=("fetch", "run", "report", "propagation"))
+    parser.add_argument("command", choices=("fetch", "run", "report", "propagation", "semantic"))
     parser.add_argument("paths", nargs="+", type=Path)
+    parser.add_argument("--reference", action="append", default=[])
     args = parser.parse_args(argv)
+
+    if args.command == "semantic":
+        for root in args.paths:
+            _semantic(root, args.reference)
+        return
 
     if args.command == "report":
         for root in args.paths:
@@ -148,6 +158,28 @@ def _propagation(path: Path, config: RunConfig) -> None:
     duckdb.sql(
         "SELECT comparison, metric, round(estimate, 4) AS estimate, round(ci_low, 4) AS ci_low, "
         "round(ci_high, 4) AS ci_high, n_questions, n_analysable FROM propagation ORDER BY ALL"
+    ).show(max_rows=10_000, max_width=250)
+    print(f"all estimates are {ANALYSIS_STATUS}", flush=True)
+    print(f"written {destination}", flush=True)
+
+
+def _semantic(root: Path, chosen: Sequence[str]) -> None:
+    arms = load_arms(ResultStore(root))
+    if not arms:
+        raise SystemExit(f"no complete semantic runs under {root}")
+    reference_arms = references(arms, chosen)
+    for (model, benchmark), arm in reference_arms.items():
+        named = "none: no single base arm, pass --reference" if arm is None else arm.config_hash
+        print(f"reference for {model} {benchmark}: {named}", flush=True)
+    semantic = semantic_table(semantic_rows(arms, reference_arms))
+    destination = root / "semantic.parquet"
+    pq.write_table(semantic, destination)
+    duckdb.sql(
+        "SELECT benchmark, arm, variant, comparison, measure, metric, "
+        "round(estimate, 4) AS estimate, round(ci_low, 4) AS ci_low, "
+        "round(ci_high, 4) AS ci_high, n_analysable FROM semantic "
+        "WHERE metric IN ('accuracy', 'mean_confidence', 'ece', 'smooth_ece', 'brier', 'auroc') "
+        "ORDER BY benchmark, comparison <> 'arm', arm, measure, metric"
     ).show(max_rows=10_000, max_width=250)
     print(f"all estimates are {ANALYSIS_STATUS}", flush=True)
     print(f"written {destination}", flush=True)
