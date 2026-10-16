@@ -8,7 +8,7 @@ ordinary throughput tweak discard every row already computed.
 import pytest
 from pydantic import ValidationError
 
-from madcal.config import RunConfig
+from madcal.config import FitConfig, HarvestConfig, RunConfig
 
 BASE = {
     "model": {"name": "transformers", "model_id": "mistralai/Mistral-7B-v0.1", "variant": "base"},
@@ -175,3 +175,42 @@ def test_the_sample_count_moves_the_hash():
     ten = build(debate=None, semantic={"n_samples": 10}).config_hash(SHA, CODE)
     twenty = build(debate=None, semantic={"n_samples": 20}).config_hash(SHA, CODE)
     assert ten != twenty
+
+
+HARVEST = {
+    "model": {"name": "transformers", "model_id": "Qwen/Qwen2.5-7B-Instruct", "variant": "base"},
+    "train": {"name": "trivia_qa", "split": "train"},
+    "evaluation": {"name": "trivia_qa", "n_questions": 2000},
+    "output_root": "results/harvest",
+}
+
+
+def test_a_harvest_trains_and_evaluates_on_one_benchmark():
+    with pytest.raises(ValidationError, match="same benchmark"):
+        HarvestConfig.model_validate({**HARVEST, "evaluation": {"name": "mmlu"}})
+
+
+def test_the_harvest_hash_moves_with_the_training_split_but_not_the_chunk_size():
+    config = HarvestConfig.model_validate(HARVEST)
+    other_split = HarvestConfig.model_validate(
+        {**HARVEST, "train": {"name": "trivia_qa", "split": "validation"}}
+    )
+    rechunked = HarvestConfig.model_validate({**HARVEST, "chunk_size": 7})
+    assert config.config_hash(SHA, CODE) != other_split.config_hash(SHA, CODE)
+    assert config.config_hash(SHA, CODE) == rechunked.config_hash(SHA, CODE)
+
+
+def test_the_fit_hash_ignores_where_the_cache_lives_but_not_the_seed():
+    fit = {"cache": "a", "arm": {"name": "vae"}, "output_root": "fits"}
+    moved = FitConfig.model_validate({**fit, "cache": "b", "device": "cpu"})
+    reseeded = FitConfig.model_validate({**fit, "seed": 1})
+    base = FitConfig.model_validate(fit).config_hash("cache", CODE)
+    assert base == moved.config_hash("cache", CODE)
+    assert base != reseeded.config_hash("cache", CODE)
+
+
+def test_an_arm_refuses_a_setting_of_another_arm():
+    with pytest.raises(ValidationError):
+        FitConfig.model_validate(
+            {"cache": "a", "arm": {"name": "probe", "latent_dim": 4}, "output_root": "fits"}
+        )

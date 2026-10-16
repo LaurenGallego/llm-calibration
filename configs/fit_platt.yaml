@@ -1,0 +1,8 @@
+arm:
+  name: platt
+lr: 0.001
+steps: 2000
+batch_questions: 64
+eval_every: 100
+selection_fraction: 0.1
+output_root: results/fits

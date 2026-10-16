@@ -25,7 +25,13 @@ from madcal.analysis import (
     semantic_table,
     to_arrow,
 )
-from madcal.config import CalibratedTransformersModelConfig, RunConfig, TransformersModelConfig
+from madcal.config import (
+    CalibratedTransformersModelConfig,
+    FitConfig,
+    HarvestConfig,
+    RunConfig,
+    TransformersModelConfig,
+)
 from madcal.orchestration import build_benchmark, run
 from madcal.storage import ResultStore, model_slug
 
@@ -77,10 +83,39 @@ def _smi(*query: str) -> str:
 def main(argv: Sequence[str] | None = None) -> None:
     """Fetch, run or trace propagation for every config named, or report on a results root."""
     parser = argparse.ArgumentParser(prog="madcal")
-    parser.add_argument("command", choices=("fetch", "run", "report", "propagation", "semantic"))
+    parser.add_argument(
+        "command",
+        choices=("fetch", "run", "report", "propagation", "semantic", "harvest", "fit", "compare"),
+    )
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--reference", action="append", default=[])
+    parser.add_argument("--cache", type=Path)
+    parser.add_argument("--seed", type=int, action="append", default=[])
     args = parser.parse_args(argv)
+
+    if args.command == "compare":
+        _compare(args.paths[0], args.paths[1:])
+        return
+
+    if args.command == "fit":
+        for path in args.paths:
+            config = FitConfig.from_yaml(path)
+            if args.cache is not None:
+                config = config.model_copy(update={"cache": args.cache})
+            for seed in args.seed or [config.seed]:
+                _fit(config.model_copy(update={"seed": seed}))
+        return
+
+    if args.command == "harvest" or (args.command == "fetch" and _is_harvest(args.paths)):
+        harvests = [HarvestConfig.from_yaml(path) for path in args.paths]
+        _offline_cache(offline=args.command == "harvest")
+        for path, harvest_config in zip(args.paths, harvests, strict=True):
+            print(f"{args.command} {path}", flush=True)
+            if args.command == "harvest":
+                _harvest(harvest_config)
+            else:
+                _fetch_harvest(harvest_config)
+        return
 
     if args.command == "semantic":
         for root in args.paths:
@@ -108,6 +143,77 @@ def main(argv: Sequence[str] | None = None) -> None:
             _propagation(path, config)
         else:
             _run(config)
+
+
+def _is_harvest(paths: Sequence[Path]) -> bool:
+    import yaml
+
+    kinds = {"train" in yaml.safe_load(path.read_text()) for path in paths}
+    if len(kinds) != 1:
+        raise SystemExit("fetch takes either run configs or harvest configs, not both")
+    return kinds.pop()
+
+
+def _offline_cache(offline: bool) -> None:
+    os.chdir(REPO_ROOT)
+    os.environ["HF_HOME"] = str(CACHE / "huggingface")
+    if offline:
+        os.environ.update(dict.fromkeys(OFFLINE, "1"))
+        print(f"gpu {claim_gpu()}", flush=True)
+
+
+def _fetch_harvest(config: HarvestConfig) -> None:
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(
+        config.model.model_id,
+        revision=config.model.revision,
+        ignore_patterns=["original/*", "*.pth"],
+    )
+    for benchmark_config in (config.train, config.evaluation):
+        questions = build_benchmark(benchmark_config).load()
+        print(f"  {benchmark_config.split}: {len(questions)} questions cached", flush=True)
+
+
+def _harvest(config: HarvestConfig) -> None:
+    from madcal.orchestration.harvest import harvest
+
+    outcome = harvest(config)
+    print(
+        f"  cache {outcome.root}: {outcome.n_written} written, {outcome.n_skipped} already stored",
+        flush=True,
+    )
+
+
+def _fit(config: FitConfig) -> None:
+    from madcal.orchestration.fit import fit
+
+    outcome = fit(config)
+    print(
+        f"  {config.arm.name} seed {config.seed} -> {outcome.root} "
+        f"(best step {outcome.best_step}, selection Brier {outcome.selection_brier:.4f})",
+        flush=True,
+    )
+
+
+def _compare(cache_dir: Path, fit_dirs: Sequence[Path]) -> None:
+    from madcal.analysis.heads import head_rows, heads_table, score_arms
+    from madcal.orchestration.fit import resolve_device
+    from madcal.storage.states import StateStore
+
+    cache = StateStore(cache_dir).load()
+    ids, correct, scored = score_arms(cache, fit_dirs, resolve_device("auto"))
+    compare = heads_table(head_rows(cache.manifest["benchmark"], ids, correct, scored))
+    destination = cache_dir.parent / f"compare-{cache.manifest['config_hash']}.parquet"
+    pq.write_table(compare, destination)
+    duckdb.sql(
+        "SELECT arm, comparison, metric, round(estimate, 4) AS estimate, "
+        "round(ci_low, 4) AS ci_low, round(ci_high, 4) AS ci_high, n_questions FROM compare "
+        "WHERE metric IN ('accuracy', 'mean_confidence', 'ece_equal_mass', 'smooth_ece', "
+        "'brier', 'auroc', 'answer_changed') ORDER BY comparison <> 'arm', arm, comparison, metric"
+    ).show(max_rows=10_000, max_width=250)
+    print(f"all estimates are {ANALYSIS_STATUS}", flush=True)
+    print(f"written {destination}", flush=True)
 
 
 def _fetch(config: RunConfig) -> None:

@@ -1,0 +1,16 @@
+model:
+  name: transformers
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  variant: base
+  dtype: float16
+  batch_size: 8
+train:
+  name: mmlu
+  reasoning: false
+evaluation:
+  name: mmlu
+  n_questions: 2000
+  reasoning: false
+max_tokens: 16
+chunk_size: 500
+output_root: results/harvest

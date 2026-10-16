@@ -41,5 +41,21 @@ own GPU:
 scripts/launch_local.sh configs/a.yaml configs/b.yaml
 ```
 
+**Answer-level heads.** One harvest per benchmark caches the model's greedy answers, their grades and
+the output head's inputs at the answer positions; each arm is then fitted on the cache and compared
+on the held-out evaluation questions:
+
+```bash
+uv run madcal fetch configs/harvest_qwen7b_trivia.yaml              # login node
+uv run madcal harvest configs/harvest_qwen7b_trivia.yaml            # GPU -> results/harvest/<hash>
+uv run madcal fit configs/fit_*.yaml --cache results/harvest/<hash> --seed 0 --seed 1 --seed 2
+uv run madcal compare results/harvest/<hash> results/fits/*         # -> results/harvest/compare-<hash>.parquet
+```
+
+On SLURM, set the command with `MADCAL_COMMAND`, e.g.
+`MADCAL_COMMAND=harvest scripts/submit_slurm.sh configs/harvest_qwen7b_trivia.yaml`. A fitted VAE's
+`checkpoint.pt` loads into the `calibrated_transformers` model (`vae_checkpoint` + `vae_sha256` from its
+`fit.json`) for semantic and debate runs.
+
 Gated models (Llama) need `HF_TOKEN` in the environment for `fetch`:
 `set -a; source .env; set +a` first.

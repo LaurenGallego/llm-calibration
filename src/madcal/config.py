@@ -94,6 +94,7 @@ ModelConfig = Annotated[
 
 class MMLUBenchmarkConfig(_Strict):
     name: Literal["mmlu"] = "mmlu"
+    split: str = "test"
     revision: str | None = None
     # Local copies, for an offline node or a test fixture. Absent both, the hub is read.
     source: Path | None = None
@@ -105,6 +106,7 @@ class MMLUBenchmarkConfig(_Strict):
 
 class TriviaQABenchmarkConfig(_Strict):
     name: Literal["trivia_qa"] = "trivia_qa"
+    split: str = "validation"
     revision: str | None = None
     source: Path | None = None
     exemplar_source: Path | None = None
@@ -179,16 +181,7 @@ class RunConfig(_Strict):
         self, checkpoint_sha: str, code_sha: str, extra: dict[str, str] | None = None
     ) -> str:
         """Identity of the condition: this config, at this checkpoint, run by this code."""
-        payload = self.model_dump(mode="json")
-        if extra:
-            payload["extra"] = extra
-        for field in ENVIRONMENT_FIELDS:
-            payload.pop(field, None)
-            payload["model"].pop(field, None)
-        payload["checkpoint_sha"] = checkpoint_sha
-        payload["code_sha"] = code_sha
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+        return identity_hash(self, checkpoint_sha, code_sha, extra)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "RunConfig":
@@ -196,3 +189,108 @@ class RunConfig(_Strict):
 
         with path.open() as handle:
             return cls.model_validate(yaml.safe_load(handle))
+
+
+class HarvestConfig(_Strict):
+    model: TransformersModelConfig
+    train: BenchmarkConfig
+    evaluation: BenchmarkConfig
+    prompt: PromptConfig = PromptConfig()
+    max_tokens: int = Field(default=16, ge=1)
+    chunk_size: int = Field(default=500, ge=1)
+    output_root: Path
+
+    @model_validator(mode="after")
+    def _one_benchmark(self) -> Self:
+        if self.train.name != self.evaluation.name:
+            raise ValueError(
+                f"train ({self.train.name}) and evaluation ({self.evaluation.name}) "
+                f"must name the same benchmark"
+            )
+        return self
+
+    def config_hash(self, checkpoint_sha: str, code_sha: str) -> str:
+        """Identity of the cache: this config, at this checkpoint, run by this code."""
+        return identity_hash(self, checkpoint_sha, code_sha)
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> "HarvestConfig":
+        import yaml
+
+        with path.open() as handle:
+            return cls.model_validate(yaml.safe_load(handle))
+
+
+class TemperatureSettings(_Strict):
+    name: Literal["temperature"] = "temperature"
+    min_temperature: float = Field(default=0.5, gt=0.0)
+    max_temperature: float = Field(default=3.0, gt=0.0)
+    grid_points: int = Field(default=61, ge=2)
+
+
+class PlattSettings(_Strict):
+    name: Literal["platt"] = "platt"
+
+
+class HiddenTemperatureSettings(_Strict):
+    name: Literal["hidden_temperature"] = "hidden_temperature"
+
+
+class ProbeSettings(_Strict):
+    name: Literal["probe"] = "probe"
+
+
+class VAESettings(_Strict):
+    name: Literal["vae"] = "vae"
+    latent_dim: int = Field(default=1024, ge=1)
+    n_layers: int = Field(default=1, ge=1)
+    mc_samples: int = Field(default=5, ge=1)
+    kl_weight: float = Field(default=0.0, ge=0.0)
+
+
+ArmSettings = Annotated[
+    TemperatureSettings | PlattSettings | HiddenTemperatureSettings | ProbeSettings | VAESettings,
+    Field(discriminator="name"),
+]
+
+
+class FitConfig(_Strict):
+    cache: Path | None = None
+    arm: ArmSettings
+    seed: int = 0
+    split_seed: int = 0
+    selection_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
+    lr: float = Field(default=1e-3, gt=0.0)
+    steps: int = Field(default=2000, ge=1)
+    batch_questions: int = Field(default=64, ge=1)
+    eval_every: int = Field(default=100, ge=1)
+    device: str = "auto"
+    output_root: Path
+
+    def config_hash(self, cache_hash: str, code_sha: str) -> str:
+        """Identity of the fit: this config, on this cache, run by this code."""
+        return identity_hash(self, cache_hash, code_sha)
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> "FitConfig":
+        import yaml
+
+        with path.open() as handle:
+            return cls.model_validate(yaml.safe_load(handle))
+
+
+def identity_hash(
+    config: BaseModel, checkpoint_sha: str, code_sha: str, extra: dict[str, str] | None = None
+) -> str:
+    """Hash a config without its environment fields, together with what it ran on and by."""
+    payload = config.model_dump(mode="json")
+    if extra:
+        payload["extra"] = extra
+    for field in (*ENVIRONMENT_FIELDS, "cache"):
+        payload.pop(field, None)
+        if isinstance(payload.get("model"), dict):
+            payload["model"].pop(field, None)
+    payload["checkpoint_sha"] = checkpoint_sha
+    payload["code_sha"] = code_sha
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]

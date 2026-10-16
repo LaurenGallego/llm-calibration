@@ -175,6 +175,69 @@ class TransformersAdapter:
             cursor += width
         return results
 
+    def continuation_ids(self, prompt: str, continuation: str) -> tuple[list[int], list[int]]:
+        """Return the token ids of `prompt + continuation` and of the continuation alone."""
+        context_ids = self._encode(prompt)
+        if not context_ids:
+            raise ValueError("prompt tokenised to nothing; cannot locate a continuation")
+        return self._split(context_ids, prompt, continuation)
+
+    def generated_ids(self, prompt: str, generation: Generation) -> tuple[list[int], list[int]]:
+        """Return the token ids of a prompt followed by its generation, and of the generation."""
+        if generation.tokens is None or not generation.tokens:
+            raise ValueError("a generation without tokens cannot be located in the sequence")
+        ids = [int(i) for i in self._tokenizer.convert_tokens_to_ids(list(generation.tokens))]
+        return self._encode(prompt) + ids, ids
+
+    def output_head(self) -> tuple[Any, Any]:
+        """Return the weight and bias of the output head, on CPU."""
+        head = self._model.get_output_embeddings()
+        if head is None:
+            raise ValueError(f"{self.model_id!r} exposes no output head")
+        bias = getattr(head, "bias", None)
+        return head.weight.detach().cpu(), None if bias is None else bias.detach().cpu()
+
+    def head_inputs(self, sequences: Sequence[tuple[Sequence[int], int]]) -> list[Any]:
+        """Return the head's input at the positions predicting each sequence's last n tokens."""
+        results: list[Any] = []
+        for start in range(0, len(sequences), self.batch_size):
+            results.extend(self._head_inputs_batch(sequences[start : start + self.batch_size]))
+        return results
+
+    def _head_inputs_batch(self, batch: Sequence[tuple[Sequence[int], int]]) -> list[Any]:
+        torch = self._torch
+        for full, n in batch:
+            if not 1 <= n < len(full):
+                raise ValueError(f"cannot take {n} continuation positions of {len(full)} tokens")
+        pad_id = self._tokenizer.pad_token_id
+        width = max(len(full) for full, _ in batch)
+        input_ids = torch.full((len(batch), width), pad_id, dtype=torch.long)
+        attention = torch.zeros((len(batch), width), dtype=torch.long)
+        for row, (full, _) in enumerate(batch):
+            input_ids[row, : len(full)] = torch.tensor(list(full), dtype=torch.long)
+            attention[row, : len(full)] = 1
+
+        captured: list[Any] = []
+        head = self._model.get_output_embeddings()
+        if head is None:
+            raise ValueError(f"{self.model_id!r} exposes no output head")
+        hook = head.register_forward_pre_hook(lambda _, inputs: captured.append(inputs[0]))
+        try:
+            with torch.no_grad():
+                self._model(
+                    input_ids=input_ids.to(self._model.device),
+                    attention_mask=attention.to(self._model.device),
+                )
+        finally:
+            hook.remove()
+        if len(captured) != 1 or captured[0].shape[1] != width:
+            raise RuntimeError("the output head did not see every position exactly once")
+        hidden = captured[0]
+        return [
+            hidden[row, len(full) - n - 1 : len(full) - 1].detach().cpu()
+            for row, (full, n) in enumerate(batch)
+        ]
+
     def _encode(self, text: str) -> list[int]:
         return list(self._tokenizer(text)["input_ids"])
 

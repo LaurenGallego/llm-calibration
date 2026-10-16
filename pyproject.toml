@@ -83,3 +83,13 @@ forbidden_modules = [
     "madcal.orchestration",
     "madcal.storage",
 ]
+
+[[tool.importlinter.contracts]]
+name = "training reads labels only from the cache"
+type = "forbidden"
+source_modules = ["madcal.training"]
+forbidden_modules = [
+    "madcal.benchmarks",
+    "madcal.debate",
+    "madcal.orchestration",
+]
