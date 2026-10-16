@@ -74,12 +74,15 @@ class AnswerStates:
 
     def select(self, indices: Sequence[int] | torch.Tensor) -> "AnswerStates":
         """Return the questions at `indices`, in that order."""
-        index = torch.as_tensor(indices, dtype=torch.long)
+        device = self.states.device
+        index = torch.as_tensor(indices, dtype=torch.long, device=self.offsets.device)
         starts, ends = self.offsets[:-1][index], self.offsets[1:][index]
         rows = (
-            torch.cat([torch.arange(int(s), int(e)) for s, e in zip(starts, ends, strict=True)])
+            torch.cat([torch.arange(int(s), int(e)) for s, e in zip(starts, ends, strict=True)]).to(
+                device
+            )
             if len(index)
-            else torch.zeros(0, dtype=torch.long)
+            else torch.zeros(0, dtype=torch.long, device=device)
         )
         lengths = ends - starts
         return AnswerStates(
@@ -87,7 +90,7 @@ class AnswerStates:
             roles=tuple(self.roles[i] for i in index.tolist()),
             correct=self.correct[index],
             states=self.states[rows],
-            offsets=torch.cat([torch.zeros(1, dtype=torch.long), lengths.cumsum(0)]),
+            offsets=torch.cat([lengths.new_zeros(1), lengths.cumsum(0)]),
             targets=self.targets[rows],
             options=None if self.options is None else self.options[index],
             chosen=None if self.chosen is None else self.chosen[index],
@@ -125,7 +128,7 @@ class AnswerStates:
             roles=tuple(r for part in parts for r in part.roles),
             correct=torch.cat([part.correct for part in parts]),
             states=torch.cat([part.states for part in parts]),
-            offsets=torch.cat([torch.zeros(1, dtype=torch.long), lengths.cumsum(0)]),
+            offsets=torch.cat([lengths.new_zeros(1), lengths.cumsum(0)]),
             targets=torch.cat([part.targets for part in parts]),
             options=torch.cat(options) if options else None,
             chosen=torch.cat(chosen) if chosen else None,

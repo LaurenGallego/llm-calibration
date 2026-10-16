@@ -76,7 +76,7 @@ def score_arms(
     scored = []
     for label, arm in arms:
         arm.eval()
-        confidence = batched_confidence(arm, answers, batch_questions).double().cpu().numpy()
+        confidence = batched_confidence(arm, answers, batch_questions).cpu().double().numpy()
         scored.append(
             ScoredArm(
                 label, label.split("/")[0], confidence, _changed(arm, answers, batch_questions)

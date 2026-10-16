@@ -90,6 +90,15 @@ def test_select_gathers_the_positions_of_each_question_in_order():
     assert picked.positions().tolist() == [0, 0, 0, 1, 1]
 
 
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="no accelerator")
+def test_select_and_concat_stay_on_the_accelerator():
+    answers = open_answers(["a", "b", "c"], [2, 1, 3]).to("mps")
+    picked = AnswerStates.concat([answers.select([2, 0]), answers.select([1])])
+    assert picked.offsets.device.type == picked.states.device.type == "mps"
+    assert picked.offsets.tolist() == [0, 3, 5, 6]
+    assert picked.targets.tolist() == [3, 4, 5, 0, 1, 2]
+
+
 def test_with_role_keeps_only_that_role():
     answers = open_answers(["a", "b", "c"], [1, 1, 1], ["train", "evaluation", "train"])
     assert answers.with_role("train").question_ids == ("a", "c")
