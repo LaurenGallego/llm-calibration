@@ -109,9 +109,9 @@ class TemperatureArm(Arm):
         head: OutputHead,
         hidden_size: int,
         seed: int,
-        min_temperature: float = 0.5,
-        max_temperature: float = 3.0,
-        grid_points: int = 61,
+        min_temperature: float = 0.25,
+        max_temperature: float = 32.0,
+        grid_points: int = 141,
     ) -> None:
         super().__init__()
         if not 0.0 < min_temperature < max_temperature:
@@ -142,6 +142,11 @@ class TemperatureArm(Arm):
                     squared[index] += ((confidence - correct) ** 2).sum()
         brier = (squared / len(answers)).tolist()
         best = min(range(len(brier)), key=brier.__getitem__)
+        if best in (0, len(brier) - 1):
+            raise ValueError(
+                f"the best temperature {math.exp(float(self.grid[best])):.3g} is at the edge "
+                f"of the grid; widen min_temperature or max_temperature"
+            )
         self.log_temperature.fill_(float(self.grid[best]))
         return [
             (math.exp(log_t), value) for log_t, value in zip(self.grid.tolist(), brier, strict=True)

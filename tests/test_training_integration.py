@@ -14,7 +14,6 @@ pytestmark = pytest.mark.skipif(not _is_cached(), reason=f"{TINY_MODEL} is not c
 
 EVALUATION = Path(__file__).parent / "fixtures" / "trivia_qa_sample.jsonl"
 ARMS = [
-    {"name": "temperature", "grid_points": 5},
     {"name": "platt"},
     {"name": "hidden_temperature"},
     {"name": "probe"},
@@ -77,6 +76,12 @@ def test_harvest_fit_and_compare_run_end_to_end_on_a_real_model(tmp_path):
         )
         for arm in ARMS
     ]
+    assert not cache.answers.with_role("train").correct.any()
+    never_correct = FitConfig.model_validate(
+        {**fit_configs[0].model_dump(), "arm": {"name": "temperature"}}
+    )
+    with pytest.raises(ValueError, match="edge of the grid"):
+        fit(never_correct)
     fit_dirs = []
     for fit_config in fit_configs:
         result = fit(fit_config)
@@ -90,10 +95,9 @@ def test_harvest_fit_and_compare_run_end_to_end_on_a_real_model(tmp_path):
     rows = head_rows("trivia_qa", ids, correct, scored, n_resamples=20)
     changed = {row.arm: row.estimate for row in rows if row.metric == ANSWER_CHANGED}
     assert changed["base"] == 0.0
-    assert changed["temperature/seed0"] == 0.0
     assert changed["hidden_temperature/seed0"] == 0.0
     assert {s.label for s in scored} == {"base", *(f"{a['name']}/seed0" for a in ARMS)}
-    assert any(row.comparison == "vae/seed0 - temperature/seed0" for row in rows)
+    assert any(row.comparison == "vae/seed0 - base" for row in rows)
 
 
 def test_a_fit_needs_a_complete_cache(tmp_path):

@@ -223,9 +223,9 @@ class HarvestConfig(_Strict):
 
 class TemperatureSettings(_Strict):
     name: Literal["temperature"] = "temperature"
-    min_temperature: float = Field(default=0.5, gt=0.0)
-    max_temperature: float = Field(default=3.0, gt=0.0)
-    grid_points: int = Field(default=61, ge=2)
+    min_temperature: float = Field(default=0.25, gt=0.0)
+    max_temperature: float = Field(default=32.0, gt=0.0)
+    grid_points: int = Field(default=141, ge=3)
 
 
 class PlattSettings(_Strict):

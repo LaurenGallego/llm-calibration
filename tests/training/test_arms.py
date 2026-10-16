@@ -75,6 +75,9 @@ def test_the_temperature_grid_recovers_a_planted_temperature():
     arm = build_arm("temperature", output, 2, 0, grid_points=251)
     arm.fit_directly(data, 64)
     assert arm.diagnostics(data)["temperature"] == pytest.approx(planted, abs=0.05)
+    capped = build_arm("temperature", output, 2, 0, max_temperature=1.5)
+    with pytest.raises(ValueError, match="edge of the grid"):
+        capped.fit_directly(data, 64)
 
 
 def test_training_the_probe_on_a_learnable_task_beats_its_start():
