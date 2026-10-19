@@ -93,6 +93,17 @@ def test_a_truncated_reference_is_recorded(trivia, question):
     assert values(signals)[signal_name("reference_truncated")] == 1.0
 
 
+def test_the_sequence_confidence_is_the_reference_probability_including_its_stop_token(
+    trivia, question
+):
+    reference = generation("Sunset Boulevard", -0.1, -0.2, -0.3)
+    _, signals = semantic_rows(question, trivia, reference, SAMPLES, None, OPEN)
+    assert values(signals)[signal_name("sequence")] == pytest.approx(E(-0.6))
+    _, unparsed = semantic_rows(question, trivia, generation(" ", -0.1), SAMPLES, None, OPEN)
+    measure = next(row for row in unparsed if row.signal == signal_name("sequence"))
+    assert measure.value is None and measure.reason == "parse_failed"
+
+
 MMLU_FIXTURE = Path(__file__).parent.parent / "fixtures" / "mmlu_sample.jsonl"
 
 

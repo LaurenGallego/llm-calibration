@@ -1,5 +1,6 @@
 """Semantic sampling: per question a greedy reference answer and sampled answers, clustered."""
 
+import math
 from collections.abc import Sequence
 
 from madcal.benchmarks import Benchmark, Question
@@ -159,6 +160,7 @@ def semantic_rows(
     )
     values = _measures(question.body, predicted, answers, samples, entails)
     values["token"] = token
+    values["sequence"] = _sequence_probability(reference, predicted, n_choices)
     values["reference_truncated"] = SignalValue(float(reference.finish_reason == "length"))
     signals = [
         SignalRow(
@@ -174,6 +176,18 @@ def semantic_rows(
         for name, value in values.items()
     ]
     return rows, signals
+
+
+def _sequence_probability(
+    reference: Generation, predicted: str | None, n_choices: int | None
+) -> SignalValue:
+    if n_choices is not None:
+        return SignalValue(None, SignalNull.NOT_APPLICABLE)
+    if predicted is None:
+        return SignalValue(None, SignalNull.PARSE_FAILED)
+    if reference.token_logprobs is None:
+        return SignalValue(None, SignalNull.NO_LOGPROBS)
+    return SignalValue(math.exp(math.fsum(reference.token_logprobs)))
 
 
 def _measures(
