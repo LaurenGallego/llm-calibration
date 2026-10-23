@@ -1,0 +1,28 @@
+model:
+  name: calibrated_transformers
+  model_id: Qwen/Qwen2.5-0.5B-Instruct
+  variant: base
+  dtype: float16
+  batch_size: 8
+train:
+  name: trivia_qa
+  split: train
+  n_questions: 400
+  sample_seed: 0
+evaluation:
+  name: trivia_qa
+  n_questions: 2000
+semantic:
+  n_samples: 10
+  max_tokens: 16
+arm:
+  name: vae
+  latent_dim: 1024
+  mc_samples: 5
+lr: 1.0e-4
+seed: 0
+n_selection: 32
+steps: 20
+batch_questions: 16
+eval_every: 10
+output_root: results/on_policy_smoke

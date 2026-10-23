@@ -142,3 +142,39 @@ def test_direct_answer_is_extracted_like_a_reasoned_one():
 def test_extraction_without_a_choice_count_is_refused(mmlu):
     with pytest.raises(ValueError, match="n_choices"):
         mmlu.extract_answer("Answer: A", None)
+
+
+@pytest.fixture
+def mmlu_text() -> MMLU:
+    return MMLU(source=FIXTURE, reasoning=False, answer_format="text")
+
+
+def test_a_text_question_is_open_with_its_options_in_the_body(mmlu_text):
+    question = mmlu_text.load()[0]
+    assert question.id == "mmlu/anatomy/test/0"
+    assert question.task_format is TaskFormat.OPEN
+    assert question.choices is None
+    assert question.answer == "paralysis of the facial muscles."
+    assert question.body.endswith(
+        "Options:\n"
+        "paralysis of the facial muscles.\n"
+        "paralysis of the facial muscles and loss of taste.\n"
+        "paralysis of the facial muscles, loss of taste and lacrimation.\n"
+        "paralysis of the facial muscles, loss of taste, lacrimation and decreased salivation."
+    )
+
+
+def test_a_text_answer_is_graded_against_the_gold_option_text(mmlu_text):
+    question = mmlu_text.load()[0]
+    extracted = mmlu_text.extract_answer("Answer: Paralysis of the facial muscles\n", None)
+    assert extracted == "Paralysis of the facial muscles"
+    assert mmlu_text.grade(question, extracted)
+    assert not mmlu_text.grade(question, "paralysis of the facial muscles and loss of taste.")
+    assert not mmlu_text.grade(question, "A")
+    assert mmlu_text.extract_answer("  \n", None) is None
+    assert mmlu_text.answer_slot("Answer: A", None) is None
+
+
+def test_text_answers_refuse_reasoning():
+    with pytest.raises(ValueError, match="reasoning"):
+        MMLU(source=FIXTURE, answer_format="text")

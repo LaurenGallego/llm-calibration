@@ -8,7 +8,7 @@ ordinary throughput tweak discard every row already computed.
 import pytest
 from pydantic import ValidationError
 
-from madcal.config import FitConfig, HarvestConfig, RunConfig
+from madcal.config import FitConfig, HarvestConfig, OnPolicyConfig, RunConfig
 
 BASE = {
     "model": {"name": "transformers", "model_id": "mistralai/Mistral-7B-v0.1", "variant": "base"},
@@ -214,3 +214,40 @@ def test_an_arm_refuses_a_setting_of_another_arm():
         FitConfig.model_validate(
             {"cache": "a", "arm": {"name": "probe", "latent_dim": 4}, "output_root": "fits"}
         )
+
+
+ON_POLICY = {
+    "model": {**CALIBRATED, "variant": "base"},
+    "train": {"name": "trivia_qa", "split": "train"},
+    "evaluation": {"name": "trivia_qa"},
+    "arm": {"name": "vae"},
+    "output_root": "results/on_policy",
+}
+
+
+def test_on_policy_training_starts_from_the_base_head():
+    assert OnPolicyConfig.model_validate(ON_POLICY).arm.name == "vae"
+    tempered = {**ON_POLICY, "model": {**ON_POLICY["model"], "temperature": 1.3}}
+    with pytest.raises(ValidationError, match="base model"):
+        OnPolicyConfig.model_validate(tempered)
+
+
+@pytest.mark.parametrize("arm", [{"name": "platt"}, {"name": "probe"}])
+def test_on_policy_training_refuses_an_arm_that_cannot_generate(arm):
+    with pytest.raises(ValidationError):
+        OnPolicyConfig.model_validate({**ON_POLICY, "arm": arm})
+
+
+def test_on_policy_training_has_no_kl_term():
+    with pytest.raises(ValidationError, match="kl_weight"):
+        OnPolicyConfig.model_validate({**ON_POLICY, "arm": {"name": "vae", "kl_weight": 0.1}})
+
+
+def test_the_on_policy_hash_moves_with_the_guardrail_but_not_the_batch_size():
+    config = OnPolicyConfig.model_validate(ON_POLICY)
+    looser = config.model_copy(update={"max_answer_changed": 0.3})
+    batched = OnPolicyConfig.model_validate(
+        {**ON_POLICY, "model": {**ON_POLICY["model"], "batch_size": 2}}
+    )
+    assert config.config_hash(SHA, CODE) != looser.config_hash(SHA, CODE)
+    assert config.config_hash(SHA, CODE) == batched.config_hash(SHA, CODE)

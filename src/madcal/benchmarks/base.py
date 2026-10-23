@@ -111,6 +111,18 @@ def normalize_answer(text: str) -> str:
 _PUNCTUATION = frozenset(string.punctuation + "\u2018\u2019\u00b4`")
 
 
+_ANSWER_PREFIX = re.compile(r"(?i)^answer[ \t]*:[ \t]*")
+
+
+def extract_short_answer(response: str) -> str | None:
+    """Return the first line of `response` without an `Answer:` prefix or final period, or None."""
+    lines = response.strip().splitlines()
+    if not lines:
+        return None
+    answer = _ANSWER_PREFIX.sub("", lines[0].strip()).strip().removesuffix(".").strip()
+    return answer or None
+
+
 def answer_letter(index: int) -> str:
     if index < 0 or index >= len(LETTERS):
         raise ValueError(f"Index must be between 0 and {len(LETTERS) - 1}, got {index}")

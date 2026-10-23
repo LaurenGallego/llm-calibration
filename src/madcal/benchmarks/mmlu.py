@@ -10,12 +10,19 @@ from madcal.benchmarks.base import (
     choice_answer_slot,
     direct_answer_instruction,
     extract_choice_letter,
+    extract_short_answer,
+    normalize_answer,
     register_benchmark,
     sample_questions,
 )
 
 HF_DATASET = "cais/mmlu"
 REQUIRED_FIELDS = ("question", "subject", "choices", "answer")
+ANSWER_FORMATS = ("letter", "text")
+TEXT_INSTRUCTION = (
+    "Respond with only the text of the correct option, exactly as written, on a single line. "
+    "Do not explain or reason."
+)
 
 
 @register_benchmark("mmlu")
@@ -32,7 +39,16 @@ class MMLU:
         exemplar_source: Path | None = None,
         exemplar_split: str = "dev",
         reasoning: bool = True,
+        answer_format: str = "letter",
     ) -> None:
+        if answer_format not in ANSWER_FORMATS:
+            raise ValueError(
+                f"answer_format must be one of {ANSWER_FORMATS}, got {answer_format!r}"
+            )
+        if answer_format == "text" and reasoning:
+            raise ValueError("the text answer format asks for the answer alone; set reasoning off")
+        self.answer_format = answer_format
+        self.task_format = TaskFormat.OPEN if answer_format == "text" else TaskFormat.MCQ
         self.subjects = tuple(subjects) if subjects is not None else None
         self.source = source
         self.split = split
@@ -65,6 +81,8 @@ class MMLU:
         return pool[:n_shots]
 
     def answer_instruction(self, question: Question) -> str:
+        if self.answer_format == "text":
+            return TEXT_INSTRUCTION
         if question.choices is None:
             raise ValueError(f"MMLU question {question.id!r} has no choices")
         if self.reasoning:
@@ -72,6 +90,8 @@ class MMLU:
         return direct_answer_instruction(len(question.choices))
 
     def extract_answer(self, response: str, n_choices: int | None) -> str | None:
+        if self.answer_format == "text":
+            return extract_short_answer(response)
         if n_choices is None:
             raise ValueError("MMLU is multiple choice; extract_answer needs n_choices")
         return extract_choice_letter(response, n_choices)
@@ -79,6 +99,8 @@ class MMLU:
     def answer_slot(
         self, response: str, n_choices: int | None
     ) -> tuple[str, str, tuple[str, ...]] | None:
+        if self.answer_format == "text":
+            return None
         if n_choices is None:
             raise ValueError("MMLU is multiple choice; answer_slot needs n_choices")
         return choice_answer_slot(response, n_choices)
@@ -86,6 +108,8 @@ class MMLU:
     def grade(self, question: Question, extracted: str) -> bool:
         if not isinstance(extracted, str):
             raise TypeError(f"grade expects an extracted answer string, got {extracted!r}")
+        if self.answer_format == "text":
+            return normalize_answer(extracted) in {normalize_answer(a) for a in question.aliases}
         return extracted.strip().upper() == question.answer
 
     def _all_questions(self) -> list[Question]:
@@ -149,6 +173,17 @@ class MMLU:
         if not isinstance(answer, int):
             raise ValueError(f"MMLU answer must be a choice index, got {answer!r}")
         subject = raw["subject"]
+        if self.answer_format == "text":
+            options = "\n".join(raw["choices"])
+            return Question(
+                id=f"{self.name}/{subject}/{split}/{index}",
+                benchmark=self.name,
+                body=f"{raw['question']}\n\nOptions:\n{options}",
+                answer=raw["choices"][answer],
+                task_format=self.task_format,
+                aliases=(raw["choices"][answer],),
+                metadata={"subject": subject, "split": split},
+            )
         return Question(
             id=f"{self.name}/{subject}/{split}/{index}",
             benchmark=self.name,

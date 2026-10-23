@@ -1,8 +1,10 @@
 import pytest
 import torch
 
+from madcal.signals.semantic import SampledAnswer, cluster_distributions
 from madcal.storage.states import AnswerStates
 from madcal.training import answer_changed, answer_log_confidence, brier_loss
+from madcal.training.objective import l_sc_norm, sequence_log_probs
 
 
 def open_answers() -> AnswerStates:
@@ -46,3 +48,60 @@ def test_an_answer_changes_where_another_token_is_most_probable():
 def test_brier_is_the_mean_squared_gap_to_correctness():
     loss = brier_loss(torch.tensor([0.4, 0.25]), torch.tensor([True, False]))
     assert float(loss) == pytest.approx(0.21125)
+
+
+def test_l_sc_norm_shares_length_normalised_mass_between_a_question_s_clusters():
+    confidence = l_sc_norm(
+        sample_log_probs=torch.tensor([-1.0, -2.0, -4.0, -3.0]),
+        sample_lengths=torch.tensor([1, 2, 2, 3]),
+        sample_cluster=torch.tensor([0, 0, 1, 2]),
+        cluster_question=torch.tensor([0, 0, 1]),
+        reference_cluster=torch.tensor([0, -1]),
+    )
+    assert confidence.tolist() == pytest.approx([0.8446375965, 0.0])
+
+
+def test_l_sc_norm_matches_the_semantic_signal(random_samples):
+    log_probs, lengths, labels = random_samples
+    samples = [
+        SampledAnswer(f"answer {label}", tuple([lp / n] * n), tuple(["t"] * n))
+        for lp, n, label in zip(log_probs.tolist(), lengths.tolist(), labels.tolist(), strict=True)
+    ]
+    expected = cluster_distributions(labels.tolist(), samples)["l_sc_norm"]
+    n_clusters = len(expected)
+    confidence = l_sc_norm(
+        log_probs,
+        lengths,
+        labels,
+        torch.zeros(n_clusters, dtype=torch.long),
+        torch.tensor([n_clusters - 1]),
+    )
+    assert float(confidence) == pytest.approx(expected[-1])
+
+
+@pytest.fixture
+def random_samples() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    generator = torch.Generator().manual_seed(0)
+    lengths = torch.randint(1, 6, (10,), generator=generator)
+    log_probs = -torch.rand(10, generator=generator, dtype=torch.float64) * lengths
+    labels = torch.tensor([0, 1, 0, 2, 1, 0, 3, 2, 0, 1])
+    return log_probs, lengths, labels
+
+
+def test_a_single_cluster_gives_confidence_one_and_no_gradient():
+    log_probs = torch.tensor([-1.0, -3.0], requires_grad=True)
+    confidence = l_sc_norm(
+        log_probs,
+        torch.tensor([1, 2]),
+        torch.tensor([0, 0]),
+        torch.tensor([0]),
+        torch.tensor([0]),
+    )
+    confidence.sum().backward()
+    assert float(confidence) == pytest.approx(1.0)
+    assert log_probs.grad is not None and log_probs.grad.abs().max() < 1e-7
+
+
+def test_sequence_log_probs_sums_each_sequence_s_positions():
+    totals = sequence_log_probs(OPEN_PROBS.log(), torch.tensor([0, 2, 1]), torch.tensor([0, 2, 3]))
+    assert totals.exp().tolist() == pytest.approx([0.4, 0.25])

@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from madcal.models.vae_head import CalibratedHead, load_vae
+from madcal.models.vae_head import CalibratedHead, load_hidden_temperature, load_vae
 from madcal.storage.states import AnswerStates
 from madcal.training import (
     OutputHead,
@@ -140,3 +140,35 @@ def test_the_selection_split_is_a_stable_function_of_the_id():
 def test_an_empty_side_of_the_split_is_refused():
     with pytest.raises(ValueError, match="empty"):
         split(answers(1), 0.5, 0)
+
+
+@pytest.mark.parametrize("name", ["base", "temperature", "hidden_temperature", "vae"])
+def test_a_generating_arm_gives_the_same_distribution_as_a_head_and_on_answers(name):
+    output, data = head(), answers(4)
+    settings = {"latent_dim": 3} if name == "vae" else {}
+    arm = build_arm(name, output, HIDDEN, 0, **settings)
+    with torch.no_grad():
+        arm.reseed(1)
+        on_answers = arm.log_probs(data)
+        arm.reseed(1)
+        as_head = arm(data.states)
+    assert on_answers is not None and torch.allclose(on_answers, as_head)
+
+
+@pytest.mark.parametrize("name", ["platt", "probe"])
+def test_an_arm_without_a_distribution_cannot_be_a_head(name):
+    with pytest.raises(TypeError, match="no output distribution"):
+        build_arm(name, head(), HIDDEN, 0)(answers(1).states)
+
+
+def test_the_hidden_temperature_checkpoint_loads_as_an_evaluation_head(tmp_path):
+    output, data = head(), answers(4)
+    arm = build_arm("hidden_temperature", output, HIDDEN, 0)
+    state = arm.checkpoint()
+    state["temperature.weight"].fill_(0.3)
+    arm.load_checkpoint(state)
+    assert sorted(state) == ["temperature.bias", "temperature.weight"]
+    torch.save(state, tmp_path / "t.pt")
+    loaded = load_hidden_temperature(tmp_path / "t.pt", output.weight, None)
+    with torch.no_grad():
+        assert torch.allclose(loaded(data.states), arm(data.states))

@@ -189,6 +189,11 @@ class TransformersAdapter:
         ids = [int(i) for i in self._tokenizer.convert_tokens_to_ids(list(generation.tokens))]
         return self._encode(prompt) + ids, ids
 
+    @property
+    def model_device(self) -> str:
+        """Device the model's weights are on."""
+        return str(self._model.device)
+
     def output_head(self) -> tuple[Any, Any]:
         """Return the weight and bias of the output head, on CPU."""
         head = self._model.get_output_embeddings()

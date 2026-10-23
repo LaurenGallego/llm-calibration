@@ -27,7 +27,14 @@ from madcal.storage import Variant
 
 # Fields recorded per row and verified by analysis rather than hashed into the identity
 # of the condition.
-ENVIRONMENT_FIELDS = ("batch_size", "chunk_size", "device", "output_root", "vae_checkpoint")
+ENVIRONMENT_FIELDS = (
+    "batch_size",
+    "chunk_size",
+    "device",
+    "output_root",
+    "vae_checkpoint",
+    "hidden_temperature_checkpoint",
+)
 
 
 class _Strict(BaseModel):
@@ -70,11 +77,17 @@ class CalibratedTransformersModelConfig(_Strict):
     vae_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     mc_samples: int = Field(default=5, ge=1)
     noise_seed: int = 0
+    hidden_temperature_checkpoint: Path | None = None
+    hidden_temperature_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _variant_matches_the_head(self) -> Self:
         if (self.vae_checkpoint is None) != (self.vae_sha256 is None):
             raise ValueError("vae_checkpoint and vae_sha256 must be given together")
+        if (self.hidden_temperature_checkpoint is None) != (self.hidden_temperature_sha256 is None):
+            raise ValueError(
+                "hidden_temperature_checkpoint and hidden_temperature_sha256 must be given together"
+            )
         expected = Variant.BASE if self.vae_checkpoint is None else Variant.VAE
         if self.variant is not expected:
             raise ValueError(f"variant must be {expected!r} for this head, got {self.variant!r}")
@@ -102,6 +115,13 @@ class MMLUBenchmarkConfig(_Strict):
     n_questions: int | None = Field(default=None, ge=1)
     sample_seed: int = 0
     reasoning: bool = True
+    answer_format: Literal["letter", "text"] = "letter"
+
+    @model_validator(mode="after")
+    def _text_answers_come_without_reasoning(self) -> Self:
+        if self.answer_format == "text" and self.reasoning:
+            raise ValueError("answer_format text asks for the answer alone; set reasoning: false")
+        return self
 
 
 class TriviaQABenchmarkConfig(_Strict):
@@ -273,6 +293,60 @@ class FitConfig(_Strict):
 
     @classmethod
     def from_yaml(cls, path: Path) -> "FitConfig":
+        import yaml
+
+        with path.open() as handle:
+            return cls.model_validate(yaml.safe_load(handle))
+
+
+OnPolicyArmSettings = Annotated[
+    TemperatureSettings | HiddenTemperatureSettings | VAESettings,
+    Field(discriminator="name"),
+]
+
+
+class OnPolicyConfig(_Strict):
+    model: CalibratedTransformersModelConfig
+    train: BenchmarkConfig
+    evaluation: BenchmarkConfig
+    prompt: PromptConfig = PromptConfig()
+    semantic: SemanticSettings = SemanticSettings()
+    arm: OnPolicyArmSettings
+    seed: int = 0
+    n_selection: int = Field(default=200, ge=1)
+    lr: float = Field(default=1e-4, gt=0.0)
+    steps: int = Field(default=500, ge=1)
+    batch_questions: int = Field(default=16, ge=1)
+    eval_every: int = Field(default=50, ge=1)
+    max_accuracy_change: float = Field(default=0.01, ge=0.0)
+    max_answer_changed: float = Field(default=0.15, ge=0.0, le=1.0)
+    output_root: Path
+
+    @model_validator(mode="after")
+    def _starts_from_the_base_model(self) -> Self:
+        if self.train.name != self.evaluation.name:
+            raise ValueError(
+                f"train ({self.train.name}) and evaluation ({self.evaluation.name}) "
+                f"must name the same benchmark"
+            )
+        model = self.model
+        if (
+            model.variant is not Variant.BASE
+            or model.temperature != 1.0
+            or model.vae_checkpoint is not None
+            or model.hidden_temperature_checkpoint is not None
+        ):
+            raise ValueError("on-policy training starts from the base model's own head")
+        if isinstance(self.arm, VAESettings) and self.arm.kl_weight != 0.0:
+            raise ValueError("on-policy training has no KL term; set kl_weight to 0")
+        return self
+
+    def config_hash(self, checkpoint_sha: str, code_sha: str) -> str:
+        """Identity of the training run: this config, at this checkpoint, run by this code."""
+        return identity_hash(self, checkpoint_sha, code_sha)
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> "OnPolicyConfig":
         import yaml
 
         with path.open() as handle:

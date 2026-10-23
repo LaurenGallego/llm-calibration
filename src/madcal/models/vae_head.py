@@ -8,6 +8,7 @@ from torch import nn
 
 HEAD_KEY = "model.lm_head.weight"
 TEMPERATURE_KEY = "log_T"
+MIN_TEMPERATURE = 0.05
 
 
 class ResidualVAE(nn.Module):
@@ -86,6 +87,40 @@ class CalibratedHead(nn.Module):
     def _log_probs(self, hidden: torch.Tensor) -> torch.Tensor:
         logits = nn.functional.linear(hidden, self.weight, self.bias)
         return torch.log_softmax(logits / self.temperature, dim=-1)
+
+
+class HiddenTemperatureHead(nn.Module):
+    """Output head dividing the logits at each position by a temperature read from its input."""
+
+    weight: torch.Tensor
+    bias: torch.Tensor | None
+
+    def __init__(self, weight: torch.Tensor, bias: torch.Tensor | None) -> None:
+        super().__init__()
+        self.register_buffer("weight", weight.detach().float(), persistent=False)
+        self.register_buffer(
+            "bias", None if bias is None else bias.detach().float(), persistent=False
+        )
+        self.temperature = nn.Linear(weight.shape[1], 1, device=weight.device)
+        nn.init.zeros_(self.temperature.weight)
+        nn.init.constant_(self.temperature.bias, math.log(math.expm1(1.0 - MIN_TEMPERATURE)))
+
+    def temperatures(self, hidden: torch.Tensor) -> torch.Tensor:
+        """Temperature at each position."""
+        return nn.functional.softplus(self.temperature(hidden.float())) + MIN_TEMPERATURE
+
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        logits = nn.functional.linear(hidden.float(), self.weight, self.bias)
+        return torch.log_softmax(logits / self.temperatures(hidden), dim=-1)
+
+
+def load_hidden_temperature(
+    path: Path, weight: torch.Tensor, bias: torch.Tensor | None
+) -> HiddenTemperatureHead:
+    """Rebuild a fitted hidden-temperature head on the output head `weight` and `bias`."""
+    head = HiddenTemperatureHead(weight, bias)
+    head.load_state_dict(torch.load(path, map_location=weight.device, weights_only=True))
+    return head.eval()
 
 
 def load_vae(path: Path, head_weight: torch.Tensor) -> ResidualVAE:

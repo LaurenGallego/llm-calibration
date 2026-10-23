@@ -1,13 +1,13 @@
 """TriviaQA, closed-book short-answer questions graded by alias match."""
 
 import json
-import re
 from collections.abc import Sequence
 from pathlib import Path
 
 from madcal.benchmarks.base import (
     Question,
     TaskFormat,
+    extract_short_answer,
     normalize_answer,
     register_benchmark,
     sample_questions,
@@ -20,7 +20,6 @@ ANSWER_INSTRUCTION = (
     "Respond with only the exact answer, as a single short phrase on a single line. "
     "Do not explain or reason."
 )
-ANSWER_PREFIX = re.compile(r"(?i)^answer[ \t]*:[ \t]*")
 
 
 @register_benchmark("trivia_qa")
@@ -69,11 +68,7 @@ class TriviaQA:
         return ANSWER_INSTRUCTION
 
     def extract_answer(self, response: str, n_choices: int | None) -> str | None:
-        lines = response.strip().splitlines()
-        if not lines:
-            return None
-        answer = ANSWER_PREFIX.sub("", lines[0].strip()).strip().removesuffix(".").strip()
-        return answer or None
+        return extract_short_answer(response)
 
     def answer_slot(
         self, response: str, n_choices: int | None

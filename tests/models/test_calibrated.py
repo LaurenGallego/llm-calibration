@@ -7,6 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from madcal.models import CalibratedTransformersAdapter, TransformersAdapter
 from madcal.models.calibrated import file_sha256
+from madcal.training import Arm, OutputHead, build_arm
 from tests.models.test_transformers import CONTINUATIONS, PROMPT, TINY_MODEL, _is_cached
 
 pytestmark = pytest.mark.skipif(not _is_cached(), reason=f"{TINY_MODEL} is not cached")
@@ -106,3 +107,41 @@ def test_generation_samples_from_the_calibrated_head():
             for index, token in enumerate(ids[len(prompt_ids) :])
         ]
         assert sample.token_logprobs == pytest.approx(expected, abs=1e-4)
+
+
+def trained_arm(adapter: CalibratedTransformersAdapter, name: str, **settings) -> Arm:
+    weight, bias = adapter.output_head()
+    arm = build_arm(name, OutputHead(weight, bias, "cpu"), int(weight.shape[1]), 0, **settings)
+    generator = torch.Generator().manual_seed(3)
+    with torch.no_grad():
+        for parameter in arm.parameters():
+            parameter.copy_(torch.randn(parameter.shape, generator=generator))
+    return arm
+
+
+def sampled(adapter: CalibratedTransformersAdapter) -> list[tuple[str, tuple[float, ...] | None]]:
+    return [(s.text, s.token_logprobs) for s in adapter.generate([PROMPT], 3, 1.0, 4, seed=7)[0]]
+
+
+@pytest.mark.parametrize(
+    ("name", "settings", "option"),
+    [
+        ("vae", {"latent_dim": 2, "mc_samples": 2}, "vae"),
+        ("hidden_temperature", {}, "hidden_temperature"),
+    ],
+)
+def test_an_installed_arm_generates_as_its_saved_checkpoint_does(tmp_path, name, settings, option):
+    live = calibrated(mc_samples=2)
+    arm = trained_arm(live, name, **settings)
+    live.install_head(arm, arm.reseed)
+    path = tmp_path / "head.pt"
+    torch.save(arm.checkpoint(), path)
+    saved = calibrated(
+        mc_samples=2, **{f"{option}_checkpoint": path, f"{option}_sha256": file_sha256(path)}
+    )
+    for (text, logprobs), (saved_text, saved_logprobs) in zip(
+        sampled(live), sampled(saved), strict=True
+    ):
+        assert text == saved_text
+        assert logprobs == pytest.approx(saved_logprobs, abs=1e-5)
+    assert sampled(live) != sampled(calibrated())

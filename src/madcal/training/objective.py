@@ -25,3 +25,40 @@ def answer_changed(log_probs: torch.Tensor, answers: AnswerStates) -> torch.Tens
 def brier_loss(confidence: torch.Tensor, correct: torch.Tensor) -> torch.Tensor:
     """Mean squared gap between confidence and correctness."""
     return ((confidence - correct.to(confidence.dtype)) ** 2).mean()
+
+
+def sequence_log_probs(
+    log_probs: torch.Tensor, targets: torch.Tensor, offsets: torch.Tensor
+) -> torch.Tensor:
+    """Summed log-probability of each sequence, whose positions `offsets` delimits."""
+    picked = log_probs.gather(1, targets[:, None]).squeeze(1)
+    owner = torch.repeat_interleave(
+        torch.arange(len(offsets) - 1, device=picked.device), offsets.diff()
+    )
+    total = torch.zeros(len(offsets) - 1, dtype=picked.dtype, device=picked.device)
+    return total.index_add(0, owner, picked)
+
+
+def l_sc_norm(
+    sample_log_probs: torch.Tensor,
+    sample_lengths: torch.Tensor,
+    sample_cluster: torch.Tensor,
+    cluster_question: torch.Tensor,
+    reference_cluster: torch.Tensor,
+) -> torch.Tensor:
+    """L-SC-norm of each question's reference cluster; 0 where the reference matched no cluster."""
+    normalised = sample_log_probs / sample_lengths.to(sample_log_probs.dtype)
+    scores = _grouped_logsumexp(normalised, sample_cluster, len(cluster_question))
+    totals = _grouped_logsumexp(scores, cluster_question, len(reference_cluster))
+    shares = (scores - totals[cluster_question]).exp()
+    matched = reference_cluster >= 0
+    picked = shares[reference_cluster.clamp(min=0)]
+    return torch.where(matched, picked, torch.zeros_like(picked))
+
+
+def _grouped_logsumexp(values: torch.Tensor, groups: torch.Tensor, n_groups: int) -> torch.Tensor:
+    peaks = torch.full((n_groups,), -torch.inf, dtype=values.dtype, device=values.device)
+    peaks = peaks.scatter_reduce(0, groups, values.detach(), reduce="amax").detach()
+    sums = torch.zeros(n_groups, dtype=values.dtype, device=values.device)
+    sums = sums.index_add(0, groups, (values - peaks[groups]).exp())
+    return peaks + sums.log()

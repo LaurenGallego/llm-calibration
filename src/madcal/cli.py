@@ -29,6 +29,7 @@ from madcal.config import (
     CalibratedTransformersModelConfig,
     FitConfig,
     HarvestConfig,
+    OnPolicyConfig,
     RunConfig,
     TransformersModelConfig,
 )
@@ -85,7 +86,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="madcal")
     parser.add_argument(
         "command",
-        choices=("fetch", "run", "report", "propagation", "semantic", "harvest", "fit", "compare"),
+        choices=(
+            "fetch",
+            "run",
+            "report",
+            "propagation",
+            "semantic",
+            "harvest",
+            "fit",
+            "compare",
+            "on-policy",
+        ),
     )
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--reference", action="append", default=[])
@@ -104,6 +115,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 config = config.model_copy(update={"cache": args.cache})
             for seed in args.seed or [config.seed]:
                 _fit(config.model_copy(update={"seed": seed}))
+        return
+
+    if args.command == "on-policy":
+        trainings = [OnPolicyConfig.from_yaml(path) for path in args.paths]
+        _offline_cache(offline=True)
+        for path, training in zip(args.paths, trainings, strict=True):
+            for seed in args.seed or [training.seed]:
+                print(f"on-policy {path} seed {seed}", flush=True)
+                _on_policy(training.model_copy(update={"seed": seed}))
         return
 
     if args.command == "harvest" or (args.command == "fetch" and _is_harvest(args.paths)):
@@ -189,6 +209,17 @@ def _fit(config: FitConfig) -> None:
     from madcal.orchestration.fit import fit
 
     outcome = fit(config)
+    print(
+        f"  {config.arm.name} seed {config.seed} -> {outcome.root} "
+        f"(best step {outcome.best_step}, selection Brier {outcome.selection_brier:.4f})",
+        flush=True,
+    )
+
+
+def _on_policy(config: OnPolicyConfig) -> None:
+    from madcal.orchestration.on_policy import on_policy
+
+    outcome = on_policy(config)
     print(
         f"  {config.arm.name} seed {config.seed} -> {outcome.root} "
         f"(best step {outcome.best_step}, selection Brier {outcome.selection_brier:.4f})",

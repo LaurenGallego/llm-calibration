@@ -7,12 +7,11 @@ from typing import Any
 import torch
 from torch import nn
 
-from madcal.models.vae_head import CalibratedHead, ResidualVAE
+from madcal.models.vae_head import CalibratedHead, HiddenTemperatureHead, ResidualVAE
 from madcal.registry import Registry
 from madcal.storage.states import AnswerStates
 from madcal.training.objective import answer_log_confidence, brier_loss
 
-MIN_TEMPERATURE = 0.05
 LOGIT_EPS = 1e-6
 
 
@@ -43,7 +42,22 @@ class Arm(nn.Module):
 
     def log_probs(self, answers: AnswerStates) -> torch.Tensor | None:
         """Per-position log-probabilities over the vocabulary, for arms that change them."""
+        return self.position_log_probs(answers.states)
+
+    def position_log_probs(self, states: torch.Tensor) -> torch.Tensor | None:
+        """Log-probabilities over the vocabulary at each head input, for arms that define them."""
         return None
+
+    def forward(self, states: torch.Tensor) -> torch.Tensor:
+        log_probs = self.position_log_probs(states)
+        if log_probs is None:
+            raise TypeError(
+                f"{type(self).__name__} defines no output distribution to generate from"
+            )
+        return log_probs
+
+    def reseed(self, seed: int) -> None:
+        """Restart the arm's noise stream at `seed`, for arms that draw noise."""
 
     def penalty(self, answers: AnswerStates) -> torch.Tensor:
         """Regulariser added to the Brier loss."""
@@ -88,11 +102,11 @@ class BaseArm(Arm):
         super().__init__()
         self.head = head
 
-    def log_probs(self, answers: AnswerStates) -> torch.Tensor:
-        return self.head.logits(answers.states).log_softmax(dim=-1)
+    def position_log_probs(self, states: torch.Tensor) -> torch.Tensor:
+        return self.head.logits(states).log_softmax(dim=-1)
 
     def confidence(self, answers: AnswerStates) -> torch.Tensor:
-        return answer_log_confidence(self.log_probs(answers), answers).exp()
+        return answer_log_confidence(self.position_log_probs(answers.states), answers).exp()
 
     def fit_directly(
         self, answers: AnswerStates, batch_questions: int
@@ -117,16 +131,16 @@ class TemperatureArm(Arm):
         if not 0.0 < min_temperature < max_temperature:
             raise ValueError("the temperature grid needs 0 < min_temperature < max_temperature")
         self.head = head
-        self.register_buffer("log_temperature", torch.zeros(()))
+        self.log_temperature = nn.Parameter(torch.zeros(()))
         self.grid = torch.linspace(
             math.log(min_temperature), math.log(max_temperature), grid_points
         )
 
-    def log_probs(self, answers: AnswerStates) -> torch.Tensor:
-        return (self.head.logits(answers.states) / self.log_temperature.exp()).log_softmax(-1)
+    def position_log_probs(self, states: torch.Tensor) -> torch.Tensor:
+        return (self.head.logits(states) / self.log_temperature.exp()).log_softmax(-1)
 
     def confidence(self, answers: AnswerStates) -> torch.Tensor:
-        return answer_log_confidence(self.log_probs(answers), answers).exp()
+        return answer_log_confidence(self.position_log_probs(answers.states), answers).exp()
 
     def fit_directly(
         self, answers: AnswerStates, batch_questions: int
@@ -147,7 +161,8 @@ class TemperatureArm(Arm):
                 f"the best temperature {math.exp(float(self.grid[best])):.3g} is at the edge "
                 f"of the grid; widen min_temperature or max_temperature"
             )
-        self.log_temperature.fill_(float(self.grid[best]))
+        with torch.no_grad():
+            self.log_temperature.fill_(float(self.grid[best]))
         return [
             (math.exp(log_t), value) for log_t, value in zip(self.grid.tolist(), brier, strict=True)
         ]
@@ -178,20 +193,23 @@ class HiddenTemperatureArm(Arm):
     def __init__(self, head: OutputHead, hidden_size: int, seed: int) -> None:
         super().__init__()
         self.head = head
-        self.temperature = nn.Linear(hidden_size, 1)
-        nn.init.zeros_(self.temperature.weight)
-        nn.init.constant_(self.temperature.bias, math.log(math.expm1(1.0 - MIN_TEMPERATURE)))
+        self.calibrated = HiddenTemperatureHead(head.weight, head.bias)
 
     def temperatures(self, states: torch.Tensor) -> torch.Tensor:
         """Temperature at each position."""
-        return nn.functional.softplus(self.temperature(states.float())) + MIN_TEMPERATURE
+        return self.calibrated.temperatures(states)
 
-    def log_probs(self, answers: AnswerStates) -> torch.Tensor:
-        logits = self.head.logits(answers.states)
-        return (logits / self.temperatures(answers.states)).log_softmax(dim=-1)
+    def position_log_probs(self, states: torch.Tensor) -> torch.Tensor:
+        return self.calibrated(states)
 
     def confidence(self, answers: AnswerStates) -> torch.Tensor:
-        return answer_log_confidence(self.log_probs(answers), answers).exp()
+        return answer_log_confidence(self.position_log_probs(answers.states), answers).exp()
+
+    def checkpoint(self) -> dict[str, torch.Tensor]:
+        return {k: v.detach().cpu().clone() for k, v in self.calibrated.state_dict().items()}
+
+    def load_checkpoint(self, state: dict[str, torch.Tensor]) -> None:
+        self.calibrated.load_state_dict(state)
 
     def diagnostics(self, answers: AnswerStates) -> dict[str, float | None]:
         with torch.no_grad():
@@ -234,11 +252,14 @@ class VAEArm(Arm):
         self.vae = noise_only_vae(hidden_size, latent_dim, n_layers)
         self.calibrated = CalibratedHead(head.weight, head.bias, 1.0, self.vae, mc_samples, seed)
 
-    def log_probs(self, answers: AnswerStates) -> torch.Tensor:
-        return self.calibrated(answers.states)
+    def position_log_probs(self, states: torch.Tensor) -> torch.Tensor:
+        return self.calibrated(states)
+
+    def reseed(self, seed: int) -> None:
+        self.calibrated.reseed(seed)
 
     def confidence(self, answers: AnswerStates) -> torch.Tensor:
-        return answer_log_confidence(self.log_probs(answers), answers).exp()
+        return answer_log_confidence(self.position_log_probs(answers.states), answers).exp()
 
     def penalty(self, answers: AnswerStates) -> torch.Tensor:
         if self.kl_weight == 0.0:

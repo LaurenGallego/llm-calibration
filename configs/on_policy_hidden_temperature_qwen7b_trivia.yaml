@@ -1,0 +1,26 @@
+model:
+  name: calibrated_transformers
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  variant: base
+  dtype: float16
+  batch_size: 8
+train:
+  name: trivia_qa
+  split: train
+  n_questions: 20000
+  sample_seed: 0
+evaluation:
+  name: trivia_qa
+  n_questions: 2000
+semantic:
+  n_samples: 10
+  max_tokens: 16
+arm:
+  name: hidden_temperature
+lr: 1.0e-4
+seed: 0
+n_selection: 200
+steps: 500
+batch_questions: 16
+eval_every: 50
+output_root: results/on_policy
