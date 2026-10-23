@@ -85,3 +85,21 @@ def test_on_policy_training_moves_the_head_when_answers_share_clusters(tmp_path,
     assert len(set(briers)) > 1
     assert all(entry["answer_changed"] == 0.0 for entry in record["evaluations"])
     assert record["selection_brier"] == min(briers)
+
+
+def test_micro_batches_train_the_head_as_one_batch_does(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "madcal.orchestration.on_policy.build_judge", lambda settings: same_length_parity
+    )
+    records = []
+    for size in (1, 4):
+        root = tmp_path / str(size)
+        root.mkdir()
+        training = config(root, {"name": "temperature"})
+        outcome = on_policy(training.model_copy(update={"micro_batch_questions": size}))
+        records.append(json.loads((outcome.root / RECORD).read_text()))
+    one, whole = records
+    for key, field in (("steps", "loss"), ("evaluations", "brier")):
+        assert [entry.get(field) for entry in one[key]] == pytest.approx(
+            [entry.get(field) for entry in whole[key]], abs=1e-6
+        )

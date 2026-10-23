@@ -53,11 +53,6 @@ class Rollout:
     def __len__(self) -> int:
         return len(self.correct)
 
-    def accuracy(self) -> float | None:
-        """Share of parsed greedy answers that are correct."""
-        graded = [value for value in self.graded if value is not None]
-        return sum(graded) / len(graded) if graded else None
-
 
 @dataclass(frozen=True, slots=True)
 class OnPolicyOutcome:
@@ -76,8 +71,9 @@ def rollout(
     n_samples: int,
     max_tokens: int,
     seed: int,
-) -> Rollout:
-    """Answer greedily, sample, grade and cluster with the head the adapter has installed."""
+    micro_batch: int,
+) -> list[Rollout]:
+    """Answer greedily, sample, grade and cluster with the installed head, in micro-batches."""
     prompts = [
         render([Message(Role.USER, debate_question(question, benchmark).text)])
         for question in questions
@@ -89,11 +85,15 @@ def rollout(
     if len(references) != len(questions) or len(samples) != len(questions):
         raise RuntimeError("adapter returned a different number of results than prompts")
 
-    out = Rollout()
+    batches: list[Rollout] = []
     sequences: list[tuple[list[int], int]] = []
-    for question, prompt, (reference,), sampled in zip(
-        questions, prompts, references, samples, strict=True
+    owners: list[int] = []
+    for index, (question, prompt, (reference,), sampled) in enumerate(
+        zip(questions, prompts, references, samples, strict=True)
     ):
+        if index % micro_batch == 0:
+            batches.append(Rollout())
+        out = batches[-1]
         if len(sampled) != n_samples:
             raise RuntimeError(f"adapter returned the wrong number of samples for {question.id!r}")
         n_choices = len(question.choices) if question.choices is not None else None
@@ -126,11 +126,15 @@ def rollout(
         for label, (_, sample) in zip(labels, parsed, strict=True):
             full, ids = adapter.generated_ids(prompt, sample)
             sequences.append((full, len(ids)))
+            owners.append(len(batches) - 1)
             out.targets += ids
             out.lengths.append(len(ids))
             out.sample_cluster.append(first_cluster + label)
-    out.states = adapter.head_inputs(sequences) if sequences else []
-    return out
+    for owner, state in zip(
+        owners, adapter.head_inputs(sequences) if sequences else [], strict=True
+    ):
+        batches[owner].states.append(state)
+    return batches
 
 
 def rollout_confidence(arm: Arm, batch: Rollout, device: str) -> torch.Tensor:
@@ -150,16 +154,22 @@ def rollout_confidence(arm: Arm, batch: Rollout, device: str) -> torch.Tensor:
     )
 
 
-def sample_states(batch: Rollout) -> AnswerStates:
-    """The rollout's sampled sequences as answer states, one per sample, for arm diagnostics."""
-    lengths = torch.tensor(batch.lengths)
+def accuracy(batches: Sequence[Rollout]) -> float | None:
+    """Share of parsed greedy answers that are correct."""
+    graded = [value for batch in batches for value in batch.graded if value is not None]
+    return sum(graded) / len(graded) if graded else None
+
+
+def sample_states(batches: Sequence[Rollout]) -> AnswerStates:
+    """The rollouts' sampled sequences as answer states, one per sample, for arm diagnostics."""
+    lengths = torch.tensor([n for batch in batches for n in batch.lengths])
     return AnswerStates(
-        question_ids=tuple(f"sample/{index}" for index in range(len(batch.lengths))),
-        roles=("train",) * len(batch.lengths),
-        correct=torch.zeros(len(batch.lengths), dtype=torch.bool),
-        states=torch.cat(batch.states),
+        question_ids=tuple(f"sample/{index}" for index in range(len(lengths))),
+        roles=("train",) * len(lengths),
+        correct=torch.zeros(len(lengths), dtype=torch.bool),
+        states=torch.cat([state for batch in batches for state in batch.states]),
         offsets=torch.cat([torch.zeros(1, dtype=torch.long), lengths.cumsum(0)]),
-        targets=torch.tensor(batch.targets),
+        targets=torch.tensor([target for batch in batches for target in batch.targets]),
     )
 
 
@@ -194,34 +204,48 @@ def on_policy(config: OnPolicyConfig) -> OnPolicyOutcome:
     entails = build_judge(config.semantic)
     n_samples, max_tokens = config.semantic.n_samples, config.semantic.max_tokens
 
-    def play(questions: Sequence[Question], seed: int) -> Rollout:
-        return rollout(questions, benchmark, adapter, render, entails, n_samples, max_tokens, seed)
+    def play(questions: Sequence[Question], seed: int) -> list[Rollout]:
+        return rollout(
+            questions,
+            benchmark,
+            adapter,
+            render,
+            entails,
+            n_samples,
+            max_tokens,
+            seed,
+            config.micro_batch_questions,
+        )
 
-    def evaluate(step: int, base: Rollout | None) -> tuple[dict[str, Any], Rollout]:
+    def evaluate(step: int, base: list[Rollout] | None) -> tuple[dict[str, Any], list[Rollout]]:
         played = play(selection, _seed(config.seed, 0))
-        if not len(played):
+        scored = [batch for batch in played if len(batch)]
+        if not scored:
             raise RuntimeError(f"no selection question could be scored at step {step}")
         with torch.no_grad():
-            confidence = rollout_confidence(arm, played, device)
-        brier = float(brier_loss(confidence, torch.tensor(played.correct, device=device)))
+            confidence = torch.cat([rollout_confidence(arm, batch, device) for batch in scored])
+        correct = torch.tensor([c for batch in scored for c in batch.correct], device=device)
         reference = base if base is not None else played
-        changed = sum(a != b for a, b in zip(played.greedy, reference.greedy, strict=True))
-        accuracy, base_accuracy = played.accuracy(), reference.accuracy()
+        greedy = [text for batch in played for text in batch.greedy]
+        base_greedy = [text for batch in reference for text in batch.greedy]
+        changed = sum(a != b for a, b in zip(greedy, base_greedy, strict=True))
+        played_accuracy, base_accuracy = accuracy(played), accuracy(reference)
         entry: dict[str, Any] = {
             "step": step,
-            "brier": brier,
-            "accuracy": accuracy,
+            "brier": float(brier_loss(confidence, correct)),
+            "accuracy": played_accuracy,
             "answer_changed": changed / len(selection),
-            "n_scored": len(played),
-            "counts": dict(played.counts),
-            "diagnostics": arm.diagnostics(sample_states(played).to(device)),
+            "n_scored": len(correct),
+            "counts": dict(sum((batch.counts for batch in played), Counter())),
+            "diagnostics": arm.diagnostics(sample_states(scored).to(device)),
         }
         entry["passes_guardrail"] = (
-            accuracy is not None
+            played_accuracy is not None
             and base_accuracy is not None
-            and abs(accuracy - base_accuracy) <= config.max_accuracy_change
+            and abs(played_accuracy - base_accuracy) <= config.max_accuracy_change
             and entry["answer_changed"] <= config.max_answer_changed
         )
+        print(json.dumps({"evaluation": entry}), flush=True)
         return entry, played
 
     first, base = evaluate(0, None)
@@ -234,18 +258,26 @@ def on_policy(config: OnPolicyConfig) -> OnPolicyOutcome:
     for step in range(1, config.steps + 1):
         started = time.monotonic()
         picks = torch.randperm(len(fit_pool), generator=generator)[: config.batch_questions]
-        batch = play([fit_pool[int(i)] for i in picks], _seed(config.seed, step))
-        entry: dict[str, Any] = {"step": step, "accuracy": batch.accuracy()}
-        entry["counts"] = dict(batch.counts)
-        if len(batch):
-            confidence = rollout_confidence(arm, batch, device)
-            loss = brier_loss(confidence, torch.tensor(batch.correct, device=device))
+        batches = play([fit_pool[int(i)] for i in picks], _seed(config.seed, step))
+        entry: dict[str, Any] = {"step": step, "accuracy": accuracy(batches)}
+        entry["counts"] = dict(sum((batch.counts for batch in batches), Counter()))
+        n_scored = sum(len(batch) for batch in batches)
+        if n_scored:
             optimizer.zero_grad()
-            loss.backward()
+            total = 0.0
+            for batch in batches:
+                if not len(batch):
+                    continue
+                confidence = rollout_confidence(arm, batch, device)
+                correct = torch.tensor(batch.correct, device=device)
+                loss = brier_loss(confidence, correct) * (len(batch) / n_scored)
+                loss.backward()
+                total += loss.item()
             optimizer.step()
-            entry["loss"] = loss.item()
+            entry["loss"] = total
         entry["seconds"] = time.monotonic() - started
         steps.append(entry)
+        print(json.dumps({"train": entry}), flush=True)
         if step % config.eval_every == 0 or step == config.steps:
             evaluation, _ = evaluate(step, base)
             evaluations.append(evaluation)

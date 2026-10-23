@@ -27,6 +27,7 @@ class Generation:
     token_logprobs: tuple[float, ...] | None
     tokens: tuple[str, ...] | None
     finish_reason: str
+    token_ids: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.finish_reason not in FINISHING_REASONS:
@@ -39,6 +40,16 @@ class Generation:
         ):
             raise ValueError(
                 f"token_logprobs length {len(self.token_logprobs)} does not match "
+                f"tokens length {len(self.tokens)}"
+            )
+
+        if (
+            self.token_ids is not None
+            and self.tokens is not None
+            and len(self.token_ids) != len(self.tokens)
+        ):
+            raise ValueError(
+                f"token_ids length {len(self.token_ids)} does not match "
                 f"tokens length {len(self.tokens)}"
             )
 

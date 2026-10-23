@@ -86,7 +86,8 @@ def scripted(adapter: TransformersAdapter, texts: list[str]):
         out = []
         for text in texts:
             tokens = tuple(tokenizer.tokenize(text)) if text else ("<|endoftext|>",)
-            out.append([Generation(text, tuple(-0.1 for _ in tokens), tokens, "stop")])
+            ids = tuple(tokenizer.convert_tokens_to_ids(list(tokens)))
+            out.append([Generation(text, tuple(-0.1 for _ in tokens), tokens, "stop", ids)])
         return out
 
     return generate

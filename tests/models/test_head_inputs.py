@@ -41,6 +41,8 @@ def test_head_inputs_cover_every_token_of_a_multi_token_continuation(adapter):
 def test_head_inputs_rescore_to_the_greedy_generation(adapter):
     (generation,) = adapter.generate([PROMPT], 1, 0.0, 6)[0]
     full, ids = adapter.generated_ids(PROMPT, generation)
+    assert generation.tokens is not None
+    assert adapter._tokenizer.convert_ids_to_tokens(ids) == list(generation.tokens)
     (state,) = adapter.head_inputs([(full, len(ids))])
     assert generation.token_logprobs is not None
     assert rescored(adapter, state, ids) == pytest.approx(list(generation.token_logprobs), abs=1e-5)

@@ -184,9 +184,9 @@ class TransformersAdapter:
 
     def generated_ids(self, prompt: str, generation: Generation) -> tuple[list[int], list[int]]:
         """Return the token ids of a prompt followed by its generation, and of the generation."""
-        if generation.tokens is None or not generation.tokens:
-            raise ValueError("a generation without tokens cannot be located in the sequence")
-        ids = [int(i) for i in self._tokenizer.convert_tokens_to_ids(list(generation.tokens))]
+        if not generation.token_ids:
+            raise ValueError("a generation without token ids cannot be located in the sequence")
+        ids = list(generation.token_ids)
         return self._encode(prompt) + ids, ids
 
     @property
@@ -402,6 +402,7 @@ class TransformersAdapter:
                         token_logprobs=tuple(float(value) for value in transition[row, :length]),
                         tokens=tuple(self._tokenizer.convert_ids_to_tokens(kept)),
                         finish_reason=finish_reason,
+                        token_ids=tuple(kept),
                     )
                 )
             grouped.append(samples)

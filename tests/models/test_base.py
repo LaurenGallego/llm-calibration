@@ -40,6 +40,13 @@ def test_logprobs_that_do_not_align_with_tokens_are_refused():
         generation((-0.5, -0.5), ("A",))
 
 
+def test_token_ids_that_do_not_align_with_tokens_are_refused():
+    with pytest.raises(ValueError, match="token_ids length"):
+        Generation(
+            text="A", token_logprobs=None, tokens=("A",), finish_reason="stop", token_ids=(1, 2)
+        )
+
+
 def test_float32_rounding_on_a_near_certain_answer_is_not_overlapping_options():
     rest = math.log(2e-9)
     scores = ChoiceScores(choices=("A", "B", "C", "D"), logprobs=(0.0, rest, rest, rest))

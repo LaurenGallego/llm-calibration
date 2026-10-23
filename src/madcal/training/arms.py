@@ -168,7 +168,7 @@ class TemperatureArm(Arm):
         ]
 
     def diagnostics(self, answers: AnswerStates) -> dict[str, float | None]:
-        return {"temperature": float(self.log_temperature.exp())}
+        return {"temperature": float(self.log_temperature.detach().exp())}
 
 
 @register_arm("platt")
