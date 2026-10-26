@@ -218,6 +218,7 @@ class HarvestConfig(_Strict):
     prompt: PromptConfig = PromptConfig()
     max_tokens: int = Field(default=16, ge=1)
     chunk_size: int = Field(default=500, ge=1)
+    gold_targets: bool = False
     output_root: Path
 
     @model_validator(mode="after")
@@ -276,7 +277,9 @@ ArmSettings = Annotated[
 
 class FitConfig(_Strict):
     cache: Path | None = None
+    target_cache: Path | None = None
     arm: ArmSettings
+    loss: Literal["brier", "log", "token_nll"] = "brier"
     seed: int = 0
     split_seed: int = 0
     selection_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
@@ -286,6 +289,12 @@ class FitConfig(_Strict):
     eval_every: int = Field(default=100, ge=1)
     device: str = "auto"
     output_root: Path
+
+    @model_validator(mode="after")
+    def _targets_for_token_nll(self) -> Self:
+        if self.target_cache is not None and self.loss != "token_nll":
+            raise ValueError("target_cache only supplies token targets: set loss: token_nll")
+        return self
 
     def config_hash(self, cache_hash: str, code_sha: str) -> str:
         """Identity of the fit: this config, on this cache, run by this code."""

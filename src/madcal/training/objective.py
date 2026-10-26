@@ -1,8 +1,10 @@
-"""Answer-level confidence from per-position log-probabilities, and the Brier objective."""
+"""Answer-level confidence from per-position log-probabilities, and the training objectives."""
 
 import torch
 
 from madcal.storage.states import AnswerStates
+
+LOG_CONFIDENCE_CEILING = -1e-12
 
 
 def answer_log_confidence(log_probs: torch.Tensor, answers: AnswerStates) -> torch.Tensor:
@@ -25,6 +27,19 @@ def answer_changed(log_probs: torch.Tensor, answers: AnswerStates) -> torch.Tens
 def brier_loss(confidence: torch.Tensor, correct: torch.Tensor) -> torch.Tensor:
     """Mean squared gap between confidence and correctness."""
     return ((confidence - correct.to(confidence.dtype)) ** 2).mean()
+
+
+def log_loss_terms(log_confidence: torch.Tensor, correct: torch.Tensor) -> torch.Tensor:
+    """Binary log loss of each answer's confidence against its correctness."""
+    log_confidence = log_confidence.clamp(max=LOG_CONFIDENCE_CEILING)
+    target = correct.to(log_confidence.dtype)
+    log_doubt = torch.log(-torch.expm1(log_confidence))
+    return -(target * log_confidence + (1.0 - target) * log_doubt)
+
+
+def target_log_probs(log_probs: torch.Tensor, answers: AnswerStates) -> torch.Tensor:
+    """Log-probability of the stored target token at each answer position."""
+    return log_probs.gather(1, answers.targets[:, None]).squeeze(1)
 
 
 def kl_to_base(log_probs: torch.Tensor, base_log_probs: torch.Tensor) -> torch.Tensor:

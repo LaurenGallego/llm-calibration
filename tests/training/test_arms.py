@@ -7,7 +7,7 @@ from madcal.models.vae_head import CalibratedHead, load_hidden_temperature, load
 from madcal.storage.states import AnswerStates
 from madcal.training import (
     OutputHead,
-    batched_brier,
+    batched_loss,
     brier_loss,
     build_arm,
     in_selection,
@@ -57,7 +57,8 @@ def test_the_probe_starts_at_one_half():
         assert arm.confidence(answers(3)).tolist() == pytest.approx([0.5] * 3)
 
 
-def test_the_temperature_grid_recovers_a_planted_temperature():
+@pytest.mark.parametrize("loss", ["brier", "log", "token_nll"])
+def test_the_temperature_grid_recovers_a_planted_temperature(loss):
     weight = torch.tensor([[1.0, 0.0], [0.0, 0.0]])
     output = OutputHead(weight, None, "cpu")
     planted, rows = 2.0, []
@@ -70,25 +71,39 @@ def test_the_temperature_grid_recovers_a_planted_temperature():
         correct=torch.tensor([correct for _, correct in rows]),
         states=torch.tensor([[gap, 0.0] for gap, _ in rows]),
         offsets=torch.arange(len(rows) + 1),
-        targets=torch.zeros(len(rows), dtype=torch.long),
+        targets=torch.tensor([loss == "token_nll" and not correct for _, correct in rows]).long(),
     )
     arm = build_arm("temperature", output, 2, 0, grid_points=251)
-    arm.fit_directly(data, 64)
+    arm.fit_directly(data, 64, loss)
     assert arm.diagnostics(data)["temperature"] == pytest.approx(planted, abs=0.05)
     capped = build_arm("temperature", output, 2, 0, max_temperature=1.5)
     with pytest.raises(ValueError, match="edge of the grid"):
-        capped.fit_directly(data, 64)
+        capped.fit_directly(data, 64, loss)
 
 
-def test_training_the_probe_on_a_learnable_task_beats_its_start():
+@pytest.mark.parametrize(("loss", "gain"), [("brier", 0.05), ("log", 0.1)])
+def test_training_the_probe_on_a_learnable_task_beats_its_start(loss, gain):
     output, data = head(), answers(400)
     fit, selection = split(data, 0.25, 0)
     arm = build_arm("probe", output, HIDDEN, 0)
-    start = batched_brier(arm, selection, 64)
-    result = train(arm, fit, selection, 0.05, 200, 64, 50, 0)
-    assert result.selection_brier < start - 0.05
-    assert result.selection_brier == pytest.approx(batched_brier(arm, selection, 64))
+    start = batched_loss(arm, selection, 64, loss)
+    result = train(arm, fit, selection, 0.05, 200, 64, 50, 0, loss)
+    assert result.selection_loss < start - gain
+    assert result.selection_loss == pytest.approx(batched_loss(arm, selection, 64, loss))
     assert result.curve[0] == (0.0, pytest.approx(start))
+
+
+def test_the_brier_loss_of_an_arm_is_the_brier_score_of_its_confidence():
+    output, data = head(), answers(10)
+    arm = build_arm("temperature", output, HIDDEN, 0)
+    expected = brier_loss(base_confidence(output, data), data.correct)
+    assert batched_loss(arm, data, 3, "brier") == pytest.approx(float(expected))
+
+
+def test_token_nll_needs_an_arm_with_a_token_distribution():
+    arm = build_arm("probe", head(), HIDDEN, 0)
+    with pytest.raises(TypeError, match="no token distribution"):
+        batched_loss(arm, answers(4), 64, "token_nll")
 
 
 def test_the_vae_keeps_its_mean_and_output_bias_at_zero_and_loads_as_an_evaluation_head(tmp_path):

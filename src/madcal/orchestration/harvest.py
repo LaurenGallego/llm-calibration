@@ -64,8 +64,9 @@ def harvest_chunk(
     adapter: TransformersAdapter,
     render: Renderer,
     max_tokens: int,
+    gold_targets: bool = False,
 ) -> StateChunk:
-    """Answer, grade and locate the answer positions of one chunk of questions."""
+    """Answer, grade and locate the answer positions of one chunk; gold targets for wrong ones."""
     prompts = [
         render([Message(Role.USER, debate_question(item.question, item.benchmark).text)])
         for item in items
@@ -87,8 +88,13 @@ def harvest_chunk(
         if predicted is None:
             nulls.append(NullAnswer(question.id, item.role, PARSE_FAILED))
             continue
+        correct = item.benchmark.grade(question, predicted)
         if n_choices is None:
             full, ids = adapter.generated_ids(prompt, reference)
+            if gold_targets and item.role == "train" and not correct:
+                stop = list(ids[-1:]) if reference.finish_reason == "stop" else []
+                full, ids = adapter.continuation_ids(prompt, question.answer)
+                full, ids = full + stop, ids + stop
             sequences.append((full, len(ids)))
             targets.append(ids)
         else:
@@ -105,7 +111,7 @@ def harvest_chunk(
             options.append([continuation[0] for _, continuation in located])
             chosen.append(index)
             targets.append([options[-1][index]])
-        graded.append((item, item.benchmark.grade(question, predicted)))
+        graded.append((item, correct))
 
     if not graded:
         return StateChunk(None, tuple(nulls))
@@ -166,6 +172,7 @@ def harvest(config: HarvestConfig) -> HarvestOutcome:
     render = build_renderer(config.prompt, adapter)
     for seq, start in enumerate(range(0, len(pending), config.chunk_size)):
         batch = pending[start : start + config.chunk_size]
-        store.write_chunk(run_id, seq, harvest_chunk(batch, adapter, render, config.max_tokens))
+        chunk = harvest_chunk(batch, adapter, render, config.max_tokens, config.gold_targets)
+        store.write_chunk(run_id, seq, chunk)
     store.finish({})
     return HarvestOutcome(config_hash, store.root, len(pending), len(items) - len(pending))

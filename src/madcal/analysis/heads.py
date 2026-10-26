@@ -59,7 +59,9 @@ def load_fitted_arm(fit_dir: Path, cache: StateCache, head: OutputHead) -> tuple
     settings = {k: v for k, v in record["config"]["arm"].items() if k != "name"}
     arm = build_arm(record["arm"], head, cache.answers.hidden_size, int(record["seed"]), **settings)
     arm.load_checkpoint(torch.load(fit_dir / "checkpoint.pt", weights_only=True))
-    return f"{record['arm']}/seed{record['seed']}", arm
+    loss = record.get("loss", "brier")
+    name = record["arm"] if loss == "brier" else f"{record['arm']}-{loss}"
+    return f"{name}/lr{record['config']['lr']:g}/seed{record['seed']}", arm
 
 
 def score_arms(
@@ -72,7 +74,7 @@ def score_arms(
     arms += [load_fitted_arm(path, cache, head) for path in fit_dirs]
     labels = [label for label, _ in arms]
     if len(set(labels)) != len(labels):
-        raise ValueError(f"two fits share an arm and seed: {sorted(labels)}")
+        raise ValueError(f"two fits share an arm, loss, lr and seed: {sorted(labels)}")
     scored = []
     for label, arm in arms:
         arm.eval()

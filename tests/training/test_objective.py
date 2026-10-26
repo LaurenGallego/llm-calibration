@@ -4,7 +4,14 @@ import torch
 from madcal.signals.semantic import SampledAnswer, cluster_distributions
 from madcal.storage.states import AnswerStates
 from madcal.training import answer_changed, answer_log_confidence, brier_loss
-from madcal.training.objective import kl_to_base, l_sc_norm, sequence_log_probs
+from madcal.training.arms import distribution_loss_terms
+from madcal.training.objective import (
+    kl_to_base,
+    l_sc_norm,
+    log_loss_terms,
+    sequence_log_probs,
+    target_log_probs,
+)
 
 
 def open_answers() -> AnswerStates:
@@ -48,6 +55,25 @@ def test_an_answer_changes_where_another_token_is_most_probable():
 def test_brier_is_the_mean_squared_gap_to_correctness():
     loss = brier_loss(torch.tensor([0.4, 0.25]), torch.tensor([True, False]))
     assert float(loss) == pytest.approx(0.21125)
+
+
+def test_log_loss_is_the_negative_log_probability_of_the_observed_grade():
+    terms = log_loss_terms(torch.tensor([0.4, 0.25]).log(), torch.tensor([True, False]))
+    assert terms.tolist() == pytest.approx([0.916291, 0.287682], abs=1e-6)
+
+
+def test_log_loss_of_a_certain_wrong_answer_is_finite():
+    terms = log_loss_terms(torch.tensor([0.0]), torch.tensor([False]))
+    assert torch.isfinite(terms).all() and float(terms[0]) > 20.0
+
+
+def test_token_nll_is_the_mean_negative_log_probability_of_every_target_token():
+    answers = open_answers()
+    assert target_log_probs(OPEN_PROBS.log(), answers).exp().tolist() == pytest.approx(
+        [0.5, 0.8, 0.25]
+    )
+    terms = distribution_loss_terms(OPEN_PROBS.log(), answers, "token_nll")
+    assert float(terms.mean()) == pytest.approx(0.767528, abs=1e-6)
 
 
 def test_l_sc_norm_shares_length_normalised_mass_between_a_question_s_clusters():

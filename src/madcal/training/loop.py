@@ -7,14 +7,13 @@ from dataclasses import dataclass
 import torch
 
 from madcal.storage.states import AnswerStates
-from madcal.training.arms import Arm, batched_brier
-from madcal.training.objective import brier_loss
+from madcal.training.arms import Arm, Loss, batched_loss, loss_terms
 
 
 @dataclass(frozen=True, slots=True)
 class TrainResult:
     best_step: int
-    selection_brier: float
+    selection_loss: float
     curve: tuple[tuple[float, float], ...]
 
 
@@ -47,28 +46,29 @@ def train(
     batch_questions: int,
     eval_every: int,
     seed: int,
+    loss: Loss = "brier",
 ) -> TrainResult:
-    """Fit `arm` and leave it at the step with the lowest selection Brier score."""
-    direct = arm.fit_directly(fit, batch_questions)
+    """Fit `arm` on `loss` and leave it at the step with the lowest selection loss."""
+    direct = arm.fit_directly(fit, batch_questions, loss)
     if direct is not None:
-        return TrainResult(0, batched_brier(arm, selection, batch_questions), tuple(direct))
+        return TrainResult(0, batched_loss(arm, selection, batch_questions, loss), tuple(direct))
 
     parameters = [p for p in arm.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(parameters, lr=lr, weight_decay=0.0)
     generator = torch.Generator().manual_seed(seed)
-    best = (0, batched_brier(arm, selection, batch_questions), arm.checkpoint())
+    best = (0, batched_loss(arm, selection, batch_questions, loss), arm.checkpoint())
     curve = [(0.0, best[1])]
     for step in range(1, steps + 1):
         picks = torch.randperm(len(fit), generator=generator)[:batch_questions]
         batch = fit.select(picks)
-        loss = brier_loss(arm.confidence(batch), batch.correct) + arm.penalty(batch)
+        objective = loss_terms(arm, batch, loss).mean() + arm.penalty(batch)
         optimizer.zero_grad()
-        loss.backward()
+        objective.backward()
         optimizer.step()
         if step % eval_every == 0 or step == steps:
-            brier = batched_brier(arm, selection, batch_questions)
-            curve.append((float(step), brier))
-            if brier < best[1]:
-                best = (step, brier, arm.checkpoint())
+            value = batched_loss(arm, selection, batch_questions, loss)
+            curve.append((float(step), value))
+            if value < best[1]:
+                best = (step, value, arm.checkpoint())
     arm.load_checkpoint(best[2])
     return TrainResult(best[0], best[1], tuple(curve))

@@ -101,7 +101,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--reference", action="append", default=[])
     parser.add_argument("--cache", type=Path)
+    parser.add_argument("--target-cache", type=Path)
     parser.add_argument("--seed", type=int, action="append", default=[])
+    parser.add_argument("--lr", type=float, action="append", default=[])
     args = parser.parse_args(argv)
 
     if args.command == "compare":
@@ -113,8 +115,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             config = FitConfig.from_yaml(path)
             if args.cache is not None:
                 config = config.model_copy(update={"cache": args.cache})
-            for seed in args.seed or [config.seed]:
-                _fit(config.model_copy(update={"seed": seed}))
+            if args.target_cache is not None:
+                config = config.model_copy(update={"target_cache": args.target_cache})
+            for lr in args.lr or [config.lr]:
+                for seed in args.seed or [config.seed]:
+                    _fit(FitConfig.model_validate({**config.model_dump(), "lr": lr, "seed": seed}))
         return
 
     if args.command == "on-policy":
@@ -210,8 +215,9 @@ def _fit(config: FitConfig) -> None:
 
     outcome = fit(config)
     print(
-        f"  {config.arm.name} seed {config.seed} -> {outcome.root} "
-        f"(best step {outcome.best_step}, selection Brier {outcome.selection_brier:.4f})",
+        f"  {config.arm.name} {config.loss} lr {config.lr:g} seed {config.seed} -> "
+        f"{outcome.root} (best step {outcome.best_step}, "
+        f"selection {config.loss} {outcome.selection_loss:.4f})",
         flush=True,
     )
 

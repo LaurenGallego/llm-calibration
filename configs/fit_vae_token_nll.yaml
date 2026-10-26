@@ -1,0 +1,13 @@
+arm:
+  name: vae
+  latent_dim: 1024
+  n_layers: 1
+  mc_samples: 5
+  kl_weight: 0.0
+loss: token_nll
+lr: 0.001
+steps: 2000
+batch_questions: 64
+eval_every: 100
+selection_fraction: 0.1
+output_root: results/fits

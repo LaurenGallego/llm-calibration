@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import torch
 
 from madcal.analysis.heads import ANSWER_CHANGED, head_rows, score_arms
 from madcal.config import FitConfig, HarvestConfig
@@ -91,13 +92,43 @@ def test_harvest_fit_and_compare_run_end_to_end_on_a_real_model(tmp_path):
     with pytest.raises(FileExistsError):
         fit(fit_configs[0])
 
+    gold = harvest(config.model_copy(update={"gold_targets": True}))
+    gold_cache = StateStore(gold.root).load()
+    greedy_train = cache.answers.with_role("train")
+    gold_train = gold_cache.answers.with_role("train")
+    assert gold_train.question_ids == greedy_train.question_ids
+    assert not torch.equal(gold_train.targets, greedy_train.targets)
+    assert torch.equal(
+        gold_cache.answers.with_role("evaluation").targets,
+        cache.answers.with_role("evaluation").targets,
+    )
+    token_nll = FitConfig.model_validate(
+        {**fit_configs[3].model_dump(), "loss": "token_nll", "target_cache": str(gold.root)}
+    )
+    result = fit(token_nll)
+    record = json.loads((result.root / "fit.json").read_text())
+    assert record["cache_hash"] == cache.manifest["config_hash"]
+    assert record["target_cache_hash"] == gold_cache.manifest["config_hash"]
+    fit_dirs.append(result.root)
+
     ids, correct, scored = score_arms(cache, fit_dirs, "cpu")
     rows = head_rows("trivia_qa", ids, correct, scored, n_resamples=20)
     changed = {row.arm: row.estimate for row in rows if row.metric == ANSWER_CHANGED}
     assert changed["base"] == 0.0
-    assert changed["hidden_temperature/seed0"] == 0.0
-    assert {s.label for s in scored} == {"base", *(f"{a['name']}/seed0" for a in ARMS)}
-    assert any(row.comparison == "vae/seed0 - base" for row in rows)
+    assert changed["hidden_temperature/lr0.001/seed0"] == 0.0
+    assert {s.label for s in scored} == {
+        "base",
+        "vae-token_nll/lr0.001/seed0",
+        *(f"{a['name']}/lr0.001/seed0" for a in ARMS),
+    }
+    assert any(row.comparison == "vae/lr0.001/seed0 - base" for row in rows)
+
+
+def test_target_cache_is_only_for_token_nll(tmp_path):
+    with pytest.raises(ValueError, match="target_cache"):
+        FitConfig.model_validate(
+            {"target_cache": str(tmp_path), "arm": {"name": "vae"}, "output_root": str(tmp_path)}
+        )
 
 
 def test_a_fit_needs_a_complete_cache(tmp_path):

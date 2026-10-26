@@ -2,10 +2,11 @@
 
 from madcal.training.arms import (
     Arm,
+    Loss,
     OutputHead,
     arm_registry,
-    batched_brier,
     batched_confidence,
+    batched_loss,
     build_arm,
     noise_only_vae,
     register_arm,
@@ -15,13 +16,14 @@ from madcal.training.objective import answer_changed, answer_log_confidence, bri
 
 __all__ = [
     "Arm",
+    "Loss",
     "OutputHead",
     "TrainResult",
     "answer_changed",
     "answer_log_confidence",
     "arm_registry",
-    "batched_brier",
     "batched_confidence",
+    "batched_loss",
     "brier_loss",
     "build_arm",
     "in_selection",

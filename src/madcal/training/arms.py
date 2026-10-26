@@ -2,7 +2,7 @@
 
 import math
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from torch import nn
@@ -10,9 +10,11 @@ from torch import nn
 from madcal.models.vae_head import CalibratedHead, HiddenTemperatureHead, ResidualVAE
 from madcal.registry import Registry
 from madcal.storage.states import AnswerStates
-from madcal.training.objective import answer_log_confidence, brier_loss
+from madcal.training.objective import answer_log_confidence, log_loss_terms, target_log_probs
 
 LOGIT_EPS = 1e-6
+
+type Loss = Literal["brier", "log", "token_nll"]
 
 
 class OutputHead:
@@ -60,11 +62,11 @@ class Arm(nn.Module):
         """Restart the arm's noise stream at `seed`, for arms that draw noise."""
 
     def penalty(self, answers: AnswerStates) -> torch.Tensor:
-        """Regulariser added to the Brier loss."""
+        """Regulariser added to the training loss."""
         return torch.zeros((), device=self.head.weight.device)
 
     def fit_directly(
-        self, answers: AnswerStates, batch_questions: int
+        self, answers: AnswerStates, batch_questions: int, loss: Loss
     ) -> list[tuple[float, float]] | None:
         """Fit without gradients and return the search curve, or None for gradient arms."""
         return None
@@ -109,7 +111,7 @@ class BaseArm(Arm):
         return answer_log_confidence(self.position_log_probs(answers.states), answers).exp()
 
     def fit_directly(
-        self, answers: AnswerStates, batch_questions: int
+        self, answers: AnswerStates, batch_questions: int, loss: Loss
     ) -> list[tuple[float, float]] | None:
         return []
 
@@ -143,20 +145,20 @@ class TemperatureArm(Arm):
         return answer_log_confidence(self.position_log_probs(answers.states), answers).exp()
 
     def fit_directly(
-        self, answers: AnswerStates, batch_questions: int
+        self, answers: AnswerStates, batch_questions: int, loss: Loss
     ) -> list[tuple[float, float]] | None:
-        squared = torch.zeros(len(self.grid), device=self.head.weight.device)
+        totals = torch.zeros(len(self.grid), device=self.head.weight.device)
         with torch.no_grad():
             for batch in _batches(answers, batch_questions):
                 logits = self.head.logits(batch.states)
-                correct = batch.correct.float()
                 for index, log_t in enumerate(self.grid.tolist()):
                     log_probs = (logits / math.exp(log_t)).log_softmax(dim=-1)
-                    confidence = answer_log_confidence(log_probs, batch).exp()
-                    squared[index] += ((confidence - correct) ** 2).sum()
-        brier = (squared / len(answers)).tolist()
-        best = min(range(len(brier)), key=brier.__getitem__)
-        if best in (0, len(brier) - 1):
+                    terms = distribution_loss_terms(log_probs, batch, loss)
+                    totals[index] += terms.sum()
+        count = len(answers.targets) if loss == "token_nll" else len(answers)
+        values = (totals / count).tolist()
+        best = min(range(len(values)), key=values.__getitem__)
+        if best in (0, len(values) - 1):
             raise ValueError(
                 f"the best temperature {math.exp(float(self.grid[best])):.3g} is at the edge "
                 f"of the grid; widen min_temperature or max_temperature"
@@ -164,7 +166,8 @@ class TemperatureArm(Arm):
         with torch.no_grad():
             self.log_temperature.fill_(float(self.grid[best]))
         return [
-            (math.exp(log_t), value) for log_t, value in zip(self.grid.tolist(), brier, strict=True)
+            (math.exp(log_t), value)
+            for log_t, value in zip(self.grid.tolist(), values, strict=True)
         ]
 
     def diagnostics(self, answers: AnswerStates) -> dict[str, float | None]:
@@ -337,7 +340,33 @@ def batched_confidence(arm: Arm, answers: AnswerStates, batch_questions: int) ->
         return torch.cat([arm.confidence(batch) for batch in _batches(answers, batch_questions)])
 
 
-def batched_brier(arm: Arm, answers: AnswerStates, batch_questions: int) -> float:
-    """Brier score of the arm over all of `answers`."""
-    confidence = batched_confidence(arm, answers, batch_questions)
-    return float(brier_loss(confidence, answers.correct))
+def distribution_loss_terms(
+    log_probs: torch.Tensor, answers: AnswerStates, loss: Loss
+) -> torch.Tensor:
+    """Per-answer (Brier, log) or per-position (token NLL) loss terms of a head's distribution."""
+    if loss == "token_nll":
+        return -target_log_probs(log_probs, answers)
+    log_confidence = answer_log_confidence(log_probs, answers)
+    if loss == "log":
+        return log_loss_terms(log_confidence, answers.correct)
+    return (log_confidence.exp() - answers.correct.to(log_probs.dtype)) ** 2
+
+
+def loss_terms(arm: Arm, answers: AnswerStates, loss: Loss) -> torch.Tensor:
+    """Per-answer (Brier, log) or per-position (token NLL) loss terms of the arm."""
+    if loss == "brier":
+        confidence = arm.confidence(answers)
+        return (confidence - answers.correct.to(confidence.dtype)) ** 2
+    log_probs = arm.log_probs(answers)
+    if log_probs is not None:
+        return distribution_loss_terms(log_probs, answers, loss)
+    if loss == "token_nll":
+        raise TypeError(f"{type(arm).__name__} defines no token distribution to fit by NLL")
+    return log_loss_terms(arm.confidence(answers).log(), answers.correct)
+
+
+def batched_loss(arm: Arm, answers: AnswerStates, batch_questions: int, loss: Loss) -> float:
+    """Mean loss of the arm over all of `answers`."""
+    with torch.no_grad():
+        terms = [loss_terms(arm, batch, loss) for batch in _batches(answers, batch_questions)]
+    return float(torch.cat(terms).mean())
