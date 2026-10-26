@@ -4,7 +4,7 @@ import torch
 from madcal.signals.semantic import SampledAnswer, cluster_distributions
 from madcal.storage.states import AnswerStates
 from madcal.training import answer_changed, answer_log_confidence, brier_loss
-from madcal.training.objective import l_sc_norm, sequence_log_probs
+from madcal.training.objective import kl_to_base, l_sc_norm, sequence_log_probs
 
 
 def open_answers() -> AnswerStates:
@@ -105,3 +105,9 @@ def test_a_single_cluster_gives_confidence_one_and_no_gradient():
 def test_sequence_log_probs_sums_each_sequence_s_positions():
     totals = sequence_log_probs(OPEN_PROBS.log(), torch.tensor([0, 2, 1]), torch.tensor([0, 2, 3]))
     assert totals.exp().tolist() == pytest.approx([0.4, 0.25])
+
+
+def test_kl_to_base_matches_a_hand_computed_divergence():
+    log_probs = torch.tensor([[0.5, 0.5], [0.25, 0.75]]).log()
+    base = torch.tensor([[0.25, 0.75], [0.25, 0.75]]).log()
+    assert kl_to_base(log_probs, base).tolist() == pytest.approx([0.1438410362, 0.0], abs=1e-7)

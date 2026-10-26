@@ -25,7 +25,7 @@ from madcal.orchestration.semantic import SAMPLING_TEMPERATURE, build_judge
 from madcal.signals.semantic import Entails, cluster_answers, first_equivalent
 from madcal.storage.states import AnswerStates
 from madcal.training import Arm, OutputHead, brier_loss, build_arm
-from madcal.training.objective import l_sc_norm, sequence_log_probs
+from madcal.training.objective import kl_to_base, l_sc_norm, sequence_log_probs
 
 CHECKPOINT = "checkpoint.pt"
 RECORD = "on_policy.json"
@@ -137,21 +137,30 @@ def rollout(
     return batches
 
 
-def rollout_confidence(arm: Arm, batch: Rollout, device: str) -> torch.Tensor:
-    """L-SC-norm of each scored question's greedy answer under `arm`."""
+def rollout_confidence(
+    arm: Arm, batch: Rollout, device: str, kl_grad: bool = False
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """L-SC-norm of each scored question's greedy answer, and each position's KL from the base."""
     lengths = torch.tensor(batch.lengths, device=device)
     offsets = torch.cat([torch.zeros(1, dtype=torch.long, device=device), lengths.cumsum(0)])
-    log_probs = arm.position_log_probs(torch.cat(batch.states).to(device))
+    states = torch.cat(batch.states).to(device)
+    log_probs = arm.position_log_probs(states)
     if log_probs is None:
         raise TypeError(f"{type(arm).__name__} defines no output distribution to train on-policy")
+    with torch.no_grad():
+        base = arm.head.logits(states).log_softmax(dim=-1)
+    with torch.set_grad_enabled(kl_grad and torch.is_grad_enabled()):
+        kl = kl_to_base(log_probs, base)
+    del base
     sequences = sequence_log_probs(log_probs, torch.tensor(batch.targets, device=device), offsets)
-    return l_sc_norm(
+    confidence = l_sc_norm(
         sequences,
         lengths,
         torch.tensor(batch.sample_cluster, device=device),
         torch.tensor(batch.cluster_question, device=device),
         torch.tensor(batch.reference, device=device),
     )
+    return confidence, kl
 
 
 def accuracy(batches: Sequence[Rollout]) -> float | None:
@@ -223,7 +232,9 @@ def on_policy(config: OnPolicyConfig) -> OnPolicyOutcome:
         if not scored:
             raise RuntimeError(f"no selection question could be scored at step {step}")
         with torch.no_grad():
-            confidence = torch.cat([rollout_confidence(arm, batch, device) for batch in scored])
+            pairs = [rollout_confidence(arm, batch, device) for batch in scored]
+        confidence = torch.cat([pair[0] for pair in pairs])
+        kl = torch.cat([pair[1] for pair in pairs])
         correct = torch.tensor([c for batch in scored for c in batch.correct], device=device)
         reference = base if base is not None else played
         greedy = [text for batch in played for text in batch.greedy]
@@ -233,6 +244,7 @@ def on_policy(config: OnPolicyConfig) -> OnPolicyOutcome:
         entry: dict[str, Any] = {
             "step": step,
             "brier": float(brier_loss(confidence, correct)),
+            "kl_to_base": float(kl.mean()),
             "accuracy": played_accuracy,
             "answer_changed": changed / len(selection),
             "n_scored": len(correct),
@@ -262,19 +274,24 @@ def on_policy(config: OnPolicyConfig) -> OnPolicyOutcome:
         entry: dict[str, Any] = {"step": step, "accuracy": accuracy(batches)}
         entry["counts"] = dict(sum((batch.counts for batch in batches), Counter()))
         n_scored = sum(len(batch) for batch in batches)
+        n_positions = sum(len(batch.targets) for batch in batches)
         if n_scored:
             optimizer.zero_grad()
-            total = 0.0
+            brier, divergence = 0.0, 0.0
             for batch in batches:
                 if not len(batch):
                     continue
-                confidence = rollout_confidence(arm, batch, device)
+                confidence, kl = rollout_confidence(arm, batch, device, config.kl_to_base > 0)
                 correct = torch.tensor(batch.correct, device=device)
-                loss = brier_loss(confidence, correct) * (len(batch) / n_scored)
-                loss.backward()
-                total += loss.item()
+                batch_brier = brier_loss(confidence, correct) * (len(batch) / n_scored)
+                batch_kl = kl.sum() / n_positions
+                (batch_brier + config.kl_to_base * batch_kl).backward()
+                brier += batch_brier.item()
+                divergence += batch_kl.item()
             optimizer.step()
-            entry["loss"] = total
+            entry["brier"] = brier
+            entry["kl_to_base"] = divergence
+            entry["loss"] = brier + config.kl_to_base * divergence
         entry["seconds"] = time.monotonic() - started
         steps.append(entry)
         print(json.dumps({"train": entry}), flush=True)

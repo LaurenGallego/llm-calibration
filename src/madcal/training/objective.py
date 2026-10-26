@@ -27,6 +27,11 @@ def brier_loss(confidence: torch.Tensor, correct: torch.Tensor) -> torch.Tensor:
     return ((confidence - correct.to(confidence.dtype)) ** 2).mean()
 
 
+def kl_to_base(log_probs: torch.Tensor, base_log_probs: torch.Tensor) -> torch.Tensor:
+    """KL divergence of each position's distribution from the base head's."""
+    return (log_probs.exp() * (log_probs - base_log_probs)).sum(dim=-1)
+
+
 def sequence_log_probs(
     log_probs: torch.Tensor, targets: torch.Tensor, offsets: torch.Tensor
 ) -> torch.Tensor:

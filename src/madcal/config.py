@@ -318,6 +318,7 @@ class OnPolicyConfig(_Strict):
     steps: int = Field(default=500, ge=1)
     batch_questions: int = Field(default=16, ge=1)
     micro_batch_questions: int = Field(default=4, ge=1)
+    kl_to_base: float = Field(default=0.0, ge=0.0)
     eval_every: int = Field(default=50, ge=1)
     max_accuracy_change: float = Field(default=0.01, ge=0.0)
     max_answer_changed: float = Field(default=0.15, ge=0.0, le=1.0)

@@ -96,10 +96,12 @@ def test_micro_batches_train_the_head_as_one_batch_does(tmp_path, monkeypatch):
         root = tmp_path / str(size)
         root.mkdir()
         training = config(root, {"name": "temperature"})
-        outcome = on_policy(training.model_copy(update={"micro_batch_questions": size}))
+        update = {"micro_batch_questions": size, "kl_to_base": 0.5}
+        outcome = on_policy(training.model_copy(update=update))
         records.append(json.loads((outcome.root / RECORD).read_text()))
     one, whole = records
-    for key, field in (("steps", "loss"), ("evaluations", "brier")):
+    assert any(entry["kl_to_base"] > 0.0 for entry in whole["steps"][1:])
+    for key, field in (("steps", "loss"), ("steps", "kl_to_base"), ("evaluations", "brier")):
         assert [entry.get(field) for entry in one[key]] == pytest.approx(
             [entry.get(field) for entry in whole[key]], abs=1e-6
         )
