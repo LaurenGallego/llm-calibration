@@ -9,7 +9,9 @@ from madcal.training.objective import (
     kl_to_base,
     l_sc_norm,
     log_loss_terms,
+    policy_gradient_terms,
     sequence_log_probs,
+    smoothed_l_sc_norm,
     target_log_probs,
 )
 
@@ -137,3 +139,46 @@ def test_kl_to_base_matches_a_hand_computed_divergence():
     log_probs = torch.tensor([[0.5, 0.5], [0.25, 0.75]]).log()
     base = torch.tensor([[0.25, 0.75], [0.25, 0.75]]).log()
     assert kl_to_base(log_probs, base).tolist() == pytest.approx([0.1438410362, 0.0], abs=1e-7)
+
+
+def test_smoothed_l_sc_norm_counts_the_greedy_answer_and_an_unseen_answer():
+    confidence = smoothed_l_sc_norm(
+        sample_log_probs=torch.tensor([-1.0, -2.0, -4.0, -3.0]),
+        sample_lengths=torch.tensor([1, 2, 2, 3]),
+        sample_cluster=torch.tensor([0, 0, 1, 2]),
+        cluster_question=torch.tensor([0, 0, 1]),
+        reference_cluster=torch.tensor([0, -1]),
+        greedy_log_probs=torch.tensor([-0.5, -2.0]),
+        greedy_lengths=torch.tensor([1, 2]),
+        epsilon=1.0,
+    )
+    assert confidence.tolist() == pytest.approx([0.541765, 0.211942], abs=1e-6)
+
+
+def test_smoothed_l_sc_norm_gives_a_unanimous_wrong_answer_a_gradient():
+    log_probs = torch.tensor([-1.0, -3.0], requires_grad=True)
+    confidence = smoothed_l_sc_norm(
+        log_probs,
+        torch.tensor([1, 2]),
+        torch.tensor([0, 0]),
+        torch.tensor([0]),
+        torch.tensor([0]),
+        torch.tensor([-1.0]),
+        torch.tensor([1]),
+        1.0,
+    )
+    ((confidence - 0.0) ** 2).sum().backward()
+    assert float(confidence) < 1.0
+    assert log_probs.grad is not None and bool((log_probs.grad > 0).all())
+
+
+def test_policy_gradient_terms_weight_each_question_s_samples_by_its_advantage():
+    log_probs = torch.tensor([-1.0, -2.0, -3.0], requires_grad=True)
+    terms = policy_gradient_terms(
+        log_probs, torch.tensor([0, 0, 1]), torch.tensor([0.5, -0.25], requires_grad=True)
+    )
+    terms.sum().backward()
+    assert terms.tolist() == pytest.approx([-1.5, 0.75])
+    assert log_probs.grad is not None and log_probs.grad.tolist() == pytest.approx(
+        [0.5, 0.5, -0.25]
+    )

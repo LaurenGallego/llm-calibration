@@ -324,10 +324,13 @@ class OnPolicyConfig(_Strict):
     seed: int = 0
     n_selection: int = Field(default=200, ge=1)
     lr: float = Field(default=1e-4, gt=0.0)
-    steps: int = Field(default=500, ge=1)
+    steps: int = Field(default=500, ge=0)
     batch_questions: int = Field(default=16, ge=1)
     micro_batch_questions: int = Field(default=4, ge=1)
     kl_to_base: float = Field(default=0.0, ge=0.0)
+    init_checkpoint: Path | None = None
+    smoothing: float | None = Field(default=None, gt=0.0)
+    policy_gradient: bool = False
     eval_every: int = Field(default=50, ge=1)
     max_accuracy_change: float = Field(default=0.01, ge=0.0)
     max_answer_changed: float = Field(default=0.15, ge=0.0, le=1.0)
@@ -349,7 +352,10 @@ class OnPolicyConfig(_Strict):
         ):
             raise ValueError("on-policy training starts from the base model's own head")
         if isinstance(self.arm, VAESettings) and self.arm.kl_weight != 0.0:
-            raise ValueError("on-policy training has no KL term; set kl_weight to 0")
+            raise ValueError(
+                "on-policy training does not use the latent prior; set kl_weight to 0 "
+                "and use kl_to_base"
+            )
         return self
 
     def config_hash(self, checkpoint_sha: str, code_sha: str) -> str:

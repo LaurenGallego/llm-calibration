@@ -1,5 +1,7 @@
 """Answer-level confidence from per-position log-probabilities, and the training objectives."""
 
+import math
+
 import torch
 
 from madcal.storage.states import AnswerStates
@@ -74,6 +76,37 @@ def l_sc_norm(
     matched = reference_cluster >= 0
     picked = shares[reference_cluster.clamp(min=0)]
     return torch.where(matched, picked, torch.zeros_like(picked))
+
+
+def smoothed_l_sc_norm(
+    sample_log_probs: torch.Tensor,
+    sample_lengths: torch.Tensor,
+    sample_cluster: torch.Tensor,
+    cluster_question: torch.Tensor,
+    reference_cluster: torch.Tensor,
+    greedy_log_probs: torch.Tensor,
+    greedy_lengths: torch.Tensor,
+    epsilon: float,
+) -> torch.Tensor:
+    """L-SC-norm with the greedy answer in its cluster and an unseen answer of weight `epsilon`."""
+    normalised = sample_log_probs / sample_lengths.to(sample_log_probs.dtype)
+    greedy = greedy_log_probs / greedy_lengths.to(greedy_log_probs.dtype)
+    scores = _grouped_logsumexp(normalised, sample_cluster, len(cluster_question))
+    totals = _grouped_logsumexp(scores, cluster_question, len(reference_cluster))
+    matched = reference_cluster >= 0
+    picked = scores[reference_cluster.clamp(min=0)]
+    reference = torch.where(matched, picked, torch.full_like(picked, -torch.inf))
+    unseen = torch.full_like(greedy, math.log(epsilon))
+    denominator = torch.stack([totals, greedy, unseen]).logsumexp(dim=0)
+    return (torch.logaddexp(reference, greedy) - denominator).exp()
+
+
+def policy_gradient_terms(
+    sample_log_probs: torch.Tensor, sample_question: torch.Tensor, advantage: torch.Tensor
+) -> torch.Tensor:
+    """Each question's detached advantage times its samples' summed log-probability."""
+    totals = torch.zeros_like(advantage).index_add(0, sample_question, sample_log_probs)
+    return advantage.detach() * totals
 
 
 def _grouped_logsumexp(values: torch.Tensor, groups: torch.Tensor, n_groups: int) -> torch.Tensor:

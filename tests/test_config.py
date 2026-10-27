@@ -251,3 +251,15 @@ def test_the_on_policy_hash_moves_with_the_guardrail_but_not_the_batch_size():
     )
     assert config.config_hash(SHA, CODE) != looser.config_hash(SHA, CODE)
     assert config.config_hash(SHA, CODE) == batched.config_hash(SHA, CODE)
+
+
+def test_on_policy_training_accepts_a_warm_start_and_an_evaluation_only_run():
+    config = OnPolicyConfig.model_validate(
+        {**ON_POLICY, "steps": 0, "init_checkpoint": "fit/checkpoint.pt", "smoothing": 1.0}
+    )
+    assert config.steps == 0
+    assert config.config_hash(SHA, CODE) != OnPolicyConfig.model_validate(ON_POLICY).config_hash(
+        SHA, CODE
+    )
+    with pytest.raises(ValidationError, match="smoothing"):
+        OnPolicyConfig.model_validate({**ON_POLICY, "smoothing": 0.0})
