@@ -1,0 +1,18 @@
+model:
+  name: calibrated_transformers
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  variant: vae
+  dtype: float16
+  batch_size: 8
+  vae_checkpoint: results/fits/8d7eac4ed751e7a3/checkpoint.pt
+  vae_sha256: c021c3319b5b854f2f4ea3715f307a8d726d5e52c6c397ff1fa16c2295d88d8e
+  mc_samples: 5
+benchmark:
+  name: trivia_qa
+  n_questions: 2000
+semantic:
+  n_samples: 10
+  max_tokens: 16
+seed: 0
+chunk_size: 100
+output_root: results
